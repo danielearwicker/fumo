@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Fumo</title>
+        <script src="knockout-3.0.0.js"></script>
+        <script src="ecma-poly.js"></script>
+        <script src="ko-bindings.js"></script>
+        <script src="api.js"></script>
+        <script src="index.js"></script>
+        <style>
+            body {
+                font-family: Helvetica, Segoe, Arial;
+                font-size: 10pt;
+                background: #fafad2;
+            }
+            .step {
+                margin-top: 4px;
+                border: 1px solid gray;
+                padding: 6px;
+                border-radius: 4px;
+                background: #fff5ee;
+                display: inline-block;
+            }
+            .stepId {
+                font-weight: bold;
+            }
+            .stepDescription {
+                font-style: italic;
+            }
+            .running {
+                background: #add8e6;
+            }
+        </style>
+    </head>
+    <body>
+        <div>
+            <span>Test:</span>
+            <span data-bind="text: testFile"></span>
+            <input type="file" data-bind="value: selectedTestFile">
+        </div>
+        <div>
+            <button data-bind="click: start">Start</button>
+            <button data-bind="click: stop">Stop</button>
+        </div>
+        <div data-bind="foreach: steps">
+            <div>
+                <div class="step"
+                     data-bind="css: { running: running },
+                                style: { marginLeft: (depth * 24)+'px' }">
+                    <div>
+                        <label>
+                            <input type="checkbox"
+                                   data-bind="checked: isEnabled,
+                                              properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
+                            <span class="stepId" data-bind="text: id"></span>
+                            <span class="stepDescription" data-bind="text: description"></span>
+                        </label>
+                    </div>
+                    <div>
+                        <span data-bind="text: status"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
