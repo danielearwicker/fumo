@@ -9,3 +9,9 @@ ko.bindingHandlers.properties = {
         }
     }
 };
+
+ko.bindingHandlers.initElement = {
+    init: function(element, valueAccessor) {
+        valueAccessor()(element);
+    }
+};

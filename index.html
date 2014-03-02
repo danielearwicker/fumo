@@ -5,13 +5,32 @@
         <script src="knockout-3.0.0.js"></script>
         <script src="ecma-poly.js"></script>
         <script src="ko-bindings.js"></script>
+        <script src="stacktrace.js"></script>
         <script src="api.js"></script>
         <script src="index.js"></script>
         <style>
             body {
                 font-family: Helvetica, Segoe, Arial;
                 font-size: 10pt;
-                background: #fafad2;
+                background: #fff8e6;
+            }
+            .toolBar {
+                position: absolute;
+                left: 4px;
+                top: 4px;
+                right: 4px;
+                height: 54px;
+            }
+            .stepList {
+                position: absolute;
+                left: 4px;
+                top: 54px;
+                right: 4px;
+                bottom: 4px;
+                overflow: auto;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #ffefd5;
             }
             .step {
                 margin-top: 4px;
@@ -21,43 +40,94 @@
                 background: #fff5ee;
                 display: inline-block;
             }
+            .step.stepDisabled {
+                background: #d3d3d3;
+            }
+            .step.stepSelected {
+                border: 2px solid black;
+            }
+            .step img {
+                float: left;
+            }
             .stepId {
                 font-weight: bold;
             }
             .stepDescription {
                 font-style: italic;
+                white-space:nowrap;
+            }
+            .stepStatus {
+                color: #2f4f4f;
+            }
+            .stepLogs {
+                font-size: 9pt;
             }
             .running {
                 background: #add8e6;
             }
+            a {
+                text-decoration: underline;
+                color: #00008b;
+            }
         </style>
     </head>
     <body>
-        <div>
-            <span>Test:</span>
-            <span data-bind="text: testFile"></span>
-            <input type="file" data-bind="value: selectedTestFile">
-        </div>
-        <div>
-            <button data-bind="click: start">Start</button>
-            <button data-bind="click: stop">Stop</button>
-        </div>
-        <div data-bind="foreach: steps">
+        <div class="toolBar">
             <div>
-                <div class="step"
-                     data-bind="css: { running: running },
-                                style: { marginLeft: (depth * 24)+'px' }">
-                    <div>
-                        <label>
-                            <input type="checkbox"
-                                   data-bind="checked: isEnabled,
-                                              properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
-                            <span class="stepId" data-bind="text: id"></span>
-                            <span class="stepDescription" data-bind="text: description"></span>
-                        </label>
-                    </div>
-                    <div>
-                        <span data-bind="text: status"></span>
+                <span>Test:</span>
+                <span data-bind="text: testFile"></span>
+                <input type="file" data-bind="value: selectedTestFile">
+            </div>
+            <div>
+                <button data-bind="click: reload, enable: canReload">Reload</button>
+                <button data-bind="click: start, enable: canStart">Start</button>
+                <button data-bind="click: stop, enable: canStop">Stop</button>
+                <button data-bind="click: reset, enable: canReset">Reset</button>
+                <button data-bind="click: enableAll, enable: canEnableAll">All</button>
+                <button data-bind="click: disableAll, enable: canDisableAll">None</button>
+                <!-- ko if: selectedStep -->
+                <button data-bind="click: first">First</button>
+                <button data-bind="click: last">Last</button>
+                <!-- /ko -->
+            </div>
+        </div>
+        <div class="stepList">
+            <div data-bind="foreach: steps">
+                <div>
+                    <div class="step"
+                         data-bind="css: {
+                                        running: running,
+                                        stepDisabled: !isEnabled(),
+                                        stepSelected: $parent.selectedStep() === $data
+                                    },
+                                    style: { marginLeft: (4 + (depth * 24))+'px' },
+                                    event: { click: select },
+                                    initElement: initElement">
+                        <img data-bind="attr: { src: 'img/' + image() + '.png' }">
+                        <div>
+                            <label>
+                                <input type="checkbox"
+                                       data-bind="checked: isEnabled,
+                                                  properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
+                                <span class="stepId" data-bind="text: id"></span>
+                                <span class="stepDescription" data-bind="text: description"></span>
+                            </label>
+                        </div>
+                        <div>
+                            <!-- ko if: showingLogs -->
+                            <div class="stepLogs" data-bind="foreach: logs">
+                                <div data-bind="text: $data"></div>
+                            </div>
+                            <!-- /ko -->
+                            <!-- ko if: !showingLogs() -->
+                            <span class="stepStatus" data-bind="text: status"></span>
+                            <!-- /ko -->
+                            <!-- ko if: logs().length > 1 -->
+                            <a data-bind="click: function() { showingLogs(!showingLogs()) },
+                                          text: showingLogs() ? 'Less' : 'More'"></a>
+                            <!-- /ko -->
+                        </div>
+
                     </div>
                 </div>
             </div>

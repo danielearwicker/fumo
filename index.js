@@ -1,12 +1,13 @@
+var gui = require('nw.gui');
 var webdriver = require('selenium-webdriver');
 var path = require('path');
 var fs = require('fs');
 
 var viewModel = {
-    steps: ko.observableArray(),
-    running: ko.observable(-1),
     testFile: ko.observable(''),
-    selectedTestFile: ko.observable('')
+    selectedTestFile: ko.observable(''),
+    steps: ko.observableArray(),
+    selectedStep: ko.observable(null)
 };
 
 ko.computed(function() {
@@ -16,21 +17,96 @@ ko.computed(function() {
     }
 });
 
-var addStep = function(step, depth, id) {
+viewModel.reload = function() {
+    var path = viewModel.testFile();
+    viewModel.testFile(null);
+    viewModel.testFile(path);
+};
 
-    var index = viewModel.steps().length;
+viewModel.canReload = ko.computed(function() {
+    return viewModel.testFile();
+});
+
+viewModel.enableAll = function() {
+    var root = viewModel.steps()[0];
+    if (root) {
+        root.isEnabled(true);
+    }
+};
+
+viewModel.canEnableAll = ko.computed(function() {
+    var root = viewModel.steps()[0];
+    return root && root.enabledState() !== 1;
+});
+
+viewModel.disableAll = function() {
+    var root = viewModel.steps()[0];
+    if (root) {
+        root.isEnabled(false);
+    }
+};
+
+viewModel.canDisableAll = ko.computed(function() {
+    var root = viewModel.steps()[0];
+    return root && root.enabledState() !== -1;
+});
+
+viewModel.first = function() {
+    viewModel.steps().some(function(step) {
+        if (step === viewModel.selectedStep()) {
+            return true;
+        }
+        if (step.execute) {
+            step.isEnabled(false);
+        }
+    });
+};
+
+viewModel.last = function() {
+    var after = false;
+    viewModel.steps().forEach(function(step) {
+        if (step === viewModel.selectedStep()) {
+            after = true;
+        } else if (after && step.execute) {
+            step.isEnabled(false);
+        }
+    });
+};
+
+var addStep = function(step, depth, id) {
 
     var stepModel = {
         description: step.description(),
         id: id || 'Root',
         depth: depth,
+        showingLogs: ko.observable(false),
+        logs: ko.observableArray(),
         status: ko.observable(''),
-        running: ko.computed(function() {
-            return viewModel.running() === index;
-        })
+        image: ko.observable('unknown')
+    };
+
+    stepModel.select = function() {
+        viewModel.selectedStep(stepModel);
+        return true;
+    };
+
+    stepModel.running = ko.computed(function() {
+        return stepModel.image() === 'running';
+    });
+
+    var element;
+    stepModel.initElement = function(initElement) {
+        element = initElement;
+    };
+
+    stepModel.log = function(msg) {
+        stepModel.status(msg);
+        stepModel.logs.push(msg);
+        element.scrollIntoView(false);
     };
 
     if (step.nestedSteps) {
+        stepModel.image('container');
 
         var children = ko.observableArray();
 
@@ -76,63 +152,105 @@ var addStep = function(step, depth, id) {
     return stepModel;
 };
 
-var driver;
+var driver = ko.observable(null),
+    runningContext = ko.observable(null);
+
+var firstEnabledStep = ko.computed(function() {
+    var first;
+    viewModel.steps().some(function(s) {
+        if (s.execute && s.isEnabled()) {
+            first = s;
+            return true;
+        }
+    });
+    return first;
+});
 
 var runningStep = function() {
-    return viewModel.steps()[viewModel.running()];
+    return firstEnabledStep();
 };
 
 var runOneStep = function() {
-    while (runningStep() &&
-        (!runningStep().execute || !runningStep().isEnabled())) {
-        viewModel.running(viewModel.running() + 1);
-    }
-
     if (!runningStep()) {
-        viewModel.running(-1);
-        driver.quit();
-        driver = null;
+        runningContext(null);
 
     } else {
 
-        runningStep().status('Started');
+        var rs = runningStep();
+        rs.log('Started');
+        rs.image('running');
+        rs.showingLogs(true);
 
-        runningStep().execute({
-            driver: driver,
+        runningContext({
+            driver: driver(),
             log: function(str) {
-                runningStep().status(str);
+                rs.log(str);
             }
-        }).then(function() {
+        });
 
-            runningStep().status('Succeeded');
-            runningStep().isEnabled(false);
-            viewModel.running(viewModel.running() + 1);
+        var execution;
+        try {
+            execution = rs.execute(runningContext());
+        } catch (x) {
+            execution = webdriver.promise.rejected(x);
+        }
+
+        execution.then(function() {
+            rs.log('Succeeded');
+            rs.image('pass');
+            rs.showingLogs(false);
+            rs.isEnabled(false);
             runOneStep();
 
         }, function(err) {
-
-            runningStep().status(err.toString());
-            viewModel.running(-1);
+            rs.log(err.toString());
+            printStackTrace({ e: err }).forEach(function(frame) {
+                rs.log('- ' + frame);
+            });
+            rs.image('fail');
+            runningContext(null);
         });
     }
 };
 
+viewModel.canStart = ko.computed(function() {
+    return firstEnabledStep() && !runningContext();
+});
+
 viewModel.start = function() {
-    if (viewModel.running() !== -1) {
+    if (runningContext()) {
         return;
     }
 
-    viewModel.running(0);
-
-    if (!driver) {
-        driver = new webdriver.Builder().withCapabilities(
-            webdriver.Capabilities.chrome()).build();
+    if (!driver()) {
+        driver(
+            new webdriver.Builder().withCapabilities(
+                    webdriver.Capabilities.chrome()).build()
+        );
     }
     runOneStep();
 };
 
-viewModel.stop = function() {
+viewModel.canStop = ko.computed(function() {
+    return runningContext();
+});
 
+viewModel.stop = function() {
+    if (runningContext()) {
+        runningContext().shouldQuit = true;
+        runningContext().log('Asked step to quit');
+    }
+};
+
+viewModel.canReset = ko.computed(function() {
+    return !runningContext() && driver();
+});
+
+viewModel.reset = function() {
+    if (driver()) {
+        driver().quit();
+        driver(null);
+    }
 };
 
 ko.computed(function() {
@@ -142,11 +260,15 @@ ko.computed(function() {
 
     var rootDir = path.dirname(viewModel.testFile());
 
+    var testLoad = function(name) {
+        return fs.readFileSync(path.join(rootDir, name), 'utf8');
+    };
+
     var testModules = {}, requireStack = {};
 
     var testRequire = function(name) {
         if (!path.extname(name)) {
-            name + '.js';
+            name += '.js';
         }
 
         name = path.join(rootDir, name);
@@ -166,15 +288,22 @@ ko.computed(function() {
         requireStack[name] = true;
 
         result = (new Function(
-            'exports', 'module', 'require',
-            source + '\nreturn module;')(exports, module, testRequire)).exports;
+            'exports', 'module', 'require, Load',
+            source + '\nreturn module;')(exports, module, testRequire, testLoad)).exports;
 
         requireStack[name] = false;
         testModules[name] = result;
         return result;
     };
 
-    var testRoot = testRequire(path.basename(viewModel.testFile()));
+    var testRoot;
+    try {
+        testRoot = testRequire(path.basename(viewModel.testFile()));
+    } catch (x) {
+        alert(x.toString() + '\n\n' + printStackTrace({ e: x }).join('\n\n'));
+        return;
+    }
+
     if (!testRoot || !testRoot.RootStep) {
         alert('Test script did not export RootStep');
         return;
@@ -188,17 +317,15 @@ window.onload = function() {
     ko.applyBindings(viewModel);
 };
 
-/*
-
-driver.findElement(webdriver.By.name('q')).sendKeys('webdriver');
-driver.findElement(webdriver.By.name('btnG')).click();
-driver.wait(function() {
-    status('waiting...');
-    return driver.getTitle().then(function(title) {
-        return title === 'webdriver - Google Search';
-    });
-}, 1000);
-
-
-
-*/
+var win = gui.Window.get();
+win.on('close', function() {
+    var self = this;
+    var forceClose = function() {
+        self.close(true);
+    };
+    if (driver()) {
+        driver().quit().then(forceClose, forceClose);
+    } else {
+        forceClose();
+    }
+});
