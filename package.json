@@ -1,6 +1,13 @@
 {
-  "name": "nw-demo",
+  "name": "fumo",
   "main": "index.html",
+  "version": "0.1.0",
+  "description": "node-webkit + selenium = declarative/interactive UI testing",
+  "author": "Daniel Earwicker <dan@earwicker.com> (http://earwicker.com/)",
+  "repository": { 
+	"type" : "git", 
+	"url" : "https://github.com/danielearwicker/fumo.git"
+  },
   "dependencies": {
     "selenium-webdriver": "~2.40.0"
   }
