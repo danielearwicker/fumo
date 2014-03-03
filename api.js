@@ -1,113 +1,97 @@
+var fumo = (function() {
 
-function ShouldQuitError() {
-    this.message = "Stopped by user";
-}
-
-ShouldQuitError.prototype = new Error();
-
-function checkShouldQuit(on) {
-    return function(ctx) {
-        if (ctx.shouldQuit) {
-            return webdriver.promise.rejected(new ShouldQuitError());
-        }
-        return on(ctx);
+    function ShouldQuitError() {
+        this.message = "Stopped by user";
     }
-}
 
-var extension_Delayed = function() {
-    var on = this;
-    return extend_Action(function(ctx) {
-        ctx.log("Waiting a second");
-        return webdriver.promise.delayed(1000).then(function() {
+    ShouldQuitError.prototype = new Error();
+
+    function wrapCheckShouldQuit(on) {
+        return function(ctx) {
+            if (ctx.shouldQuit) {
+                return webdriver.promise.rejected(new ShouldQuitError());
+            }
             return on(ctx);
-        });
-    });
-};
+        };
+    }
 
-var extension_Then = function(next) {
-    var on = this;
-    return extend_Action(function(ctx) {
-        return on(ctx).then(function() {
-            return next(ctx);
-        });
-    });
-};
+    function normaliseString(str) {
+        return str.toLowerCase().trim().replace(/\r/g, '');
+    }
 
-var extend_Action = function(on) {
-    var ext = checkShouldQuit(on);
-    ext.Delayed = extension_Delayed;
-    ext.Then = extension_Then;
-    return ext;
-};
-
-function normaliseString(str) {
-    return str.toLowerCase().trim().replace(/\r/g, '');
-}
-
-var Perform = {
-    Extend: extend_Action,
-
-    Until: function(promisedTruthy) {
+    function until(ctx, promisedTruthy) {
         var d = webdriver.promise.defer();
         var attempt = function() {
-            promisedTruthy().then(function(result) {
-                if (result) {
-                    d.fulfill(result);
-                } else {
+            if (ctx.shouldQuit) {
+                d.reject(new ShouldQuitError());
+            } else {
+                promisedTruthy().then(function(result) {
+                    if (result) {
+                        d.fulfill(result);
+                    } else {
+                        setTimeout(attempt, 500);
+                    }
+                }, function(x) {
+                    if (x instanceof ShouldQuitError) {
+                        d.reject(x);
+                    }
                     setTimeout(attempt, 500);
-                }
-            }, function(x) {
-                if (x instanceof ShouldQuitError) {
-                    d.reject(x);
-                }
-                setTimeout(attempt, 500);
-            });
+                });
+            }
         };
         attempt();
         return d;
-    },
+    }
 
-    Retry: function(promisedOperation) {
+    function retry(ctx, promisedOperation) {
         var d = webdriver.promise.defer();
         var tries = 0;
         var attempt = function() {
-            promisedOperation().then(function(result) {
-                d.fulfill(result);
-            }, function(x) {
-                if (x instanceof ShouldQuitError) {
-                    d.reject(x);
-                }
-                if (tries++ > 10) {
-                    d.reject(x);
-                } else {
-                    setTimeout(attempt, 50);
-                }
-            });
+            if (ctx.shouldQuit) {
+                d.reject(new ShouldQuitError());
+            } else {
+                promisedOperation(tries + 1).then(function(result) {
+                    d.fulfill(result);
+                }, function(x) {
+                    if (x instanceof ShouldQuitError) {
+                        d.reject(x);
+                    }
+                    if (tries++ > 10) {
+                        d.reject(x);
+                    } else {
+                        setTimeout(attempt, 50);
+                    }
+                });
+            }
         };
         attempt();
         return d;
-    },
+    }
 
-    ForEach: function(arr, act) {
+    function forEach(ctx, arr, act) {
         var d = webdriver.promise.defer(), i = 0, results = [];
         var step = function() {
-            if (i >= arr.length) {
-                d.fulfill(results);
+            if (ctx.shouldQuit) {
+                d.reject(new ShouldQuitError());
             } else {
-                var n = i++;
-                act(arr[n]).then(function(result) {
-                    results[n] = result;
-                    step();
-                }, function(err) {
-                    d.reject(err);
-                });
+                if (i >= arr.length) {
+                    d.fulfill(results);
+                } else {
+                    var n = i++;
+                    act(arr[n]).then(function(result) {
+                        results[n] = result;
+                        step();
+                    }, function(err) {
+                        d.reject(err);
+                    });
+                }
             }
         };
         step();
         return d;
-    },
+    }
 
-    AwaitElement: function(ctx, path) {
+    function awaitElement(ctx, path) {
 
         ctx.log('Finding ' + JSON.stringify(path));
 
@@ -127,14 +111,11 @@ var Perform = {
             }
         });
 
-        return Perform.Retry(function() {
+        return retry(ctx, function() {
 
             var found = ctx.driver;
 
-            return Perform.ForEach(path, function(part) {
-                if (ctx.shouldQuit) {
-                    return webdriver.promise.rejected(new ShouldQuitError());
-                }
+            return forEach(ctx, path, function(part) {
                 return found.isElementPresent(part).then(function(present) {
                     if (!present) {
                         ctx.log('Not found: ' + JSON.stringify(path));
@@ -148,21 +129,47 @@ var Perform = {
                 return found;
             });
         });
-    },
+    }
 
-    Click: function(cssElem) {
-        return extend_Action(function(ctx) {
+    function extension_Delayed() {
+        var on = this;
+        return action(function(ctx) {
+            ctx.log("Waiting a second");
+            return webdriver.promise.delayed(1000).then(function() {
+                return on(ctx);
+            });
+        });
+    }
+
+    function extension_Then(next) {
+        var on = this;
+        return action(function(ctx) {
+            return on(ctx).then(function() {
+                return next(ctx);
+            });
+        });
+    }
+
+    function action(on) {
+        var ext = wrapCheckShouldQuit(on);
+        ext.delayed = extension_Delayed;
+        ext.then = extension_Then;
+        return ext;
+    }
+
+    action.click = function(cssElem) {
+        return action(function(ctx) {
             ctx.log('Clicking ' + cssElem);
-            return Perform.AwaitElement(ctx, cssElem).then(function(elem) {
+            return awaitElement(ctx, cssElem).then(function(elem) {
                 return elem.click();
             });
         });
-    },
+    };
 
-    InputText: function(cssElem, text, extraKeys) {
-        return extend_Action(function(ctx) {
+    action.inputText = function(cssElem, text, extraKeys) {
+        return action(function(ctx) {
             ctx.log('Entering text "' + text + '" into ' + cssElem);
-            return Perform.AwaitElement(ctx, cssElem).then(function(elem) {
+            return awaitElement(ctx, cssElem).then(function(elem) {
                 var chain = elem.clear().then(function() {
                     return elem.sendKeys(text);
                 });
@@ -173,14 +180,14 @@ var Perform = {
                 });
             });
         });
-    },
+    };
 
-    SendKeys: function(keyArray) {
+    action.sendKeys = function(keyArray) {
         if (!Array.isArray(keyArray)) {
             keyArray = [keyArray];
         }
-        return extend_Action(function(ctx) {
-            return Perform.ForEach(keyArray, function(key) {
+        return action(function(ctx) {
+            return forEach(ctx, keyArray, function(key) {
                 ctx.log('Pressing key "' + key + '"');
                 var keyStr = webdriver.Key[key.toUpperCase()];
                 if (keyStr === void 0) {
@@ -191,19 +198,19 @@ var Perform = {
                     .perform();
             });
         });
-    },
+    };
 
-    Navigate: function(url) {
-        return extend_Action(function(ctx) {
+    action.navigate = function(url) {
+        return action(function(ctx) {
             ctx.log('Navigating to ' + url);
             return ctx.driver.get(url);
         });
-    },
+    };
 
-    WithFrame: function(frameCss, on) {
-        return extend_Action(function(ctx) {
+    action.withFrame = function(frameCss, on) {
+        return action(function(ctx) {
             ctx.log("Switching to frame " + frameCss);
-            return Perform.AwaitElement(ctx, frameCss).then(function(frameElem) {
+            return awaitElement(ctx, frameCss).then(function(frameElem) {
                 return ctx.driver.switchTo().frame(frameElem).then(function() {
                     return on(ctx).then(function(result) {
                         return ctx.driver.switchTo().defaultContent().then(function() {
@@ -217,35 +224,35 @@ var Perform = {
                 });
             });
         });
-    },
+    };
 
-    Execute: function(js) {
-        return extend_Action(function(ctx) {
+    action.execute = function(js) {
+        return action(function(ctx) {
             ctx.log('Executing: ' + js);
             return ctx.driver.executeScript(js);
         });
-    },
+    };
 
-    SetProperty: function(css, prop, val) {
-        return Perform.Execute("$('" + css + "')." + prop + "(" + JSON.stringify(val) + ")");
-    },
+    action.setProperty = function(css, prop, val) {
+        return action.execute("$('" + css + "')." + prop + "(" + JSON.stringify(val) + ")");
+    };
 
-    MoveTo: function(cssElem) {
-        return extend_Action(function(ctx) {
+    action.moveTo = function(cssElem) {
+        return action(function(ctx) {
             ctx.log('Moving mouse to: ' + cssElem);
-            return Perform.AwaitElement(ctx, cssElem).then(function(elem) {
+            return awaitElement(ctx, cssElem).then(function(elem) {
                 return new webdriver.ActionSequence(ctx.driver)
                     .mouseMove(elem)
                     .perform();
             });
         });
-    },
+    };
 
-    DragAndDrop: function(cssDrag, cssDrop, x, y) {
-        return extend_Action(function(ctx) {
+    action.dragAndDrop = function(cssDrag, cssDrop, x, y) {
+        return action(function(ctx) {
             ctx.log('Dragging ' + cssDrag + ' and dropping on ' + cssDrop);
-            return Perform.AwaitElement(ctx, cssDrag).then(function(elemDrag) {
-                return Perform.AwaitElement(ctx, cssDrop).then(function(elemDrop) {
+            return awaitElement(ctx, cssDrag).then(function(elemDrag) {
+                return awaitElement(ctx, cssDrop).then(function(elemDrop) {
                     return new webdriver.ActionSequence(ctx.driver)
                         .mouseDown(elemDrag)
                         .mouseMove(elemDrop, { x: x, y: y })
@@ -254,60 +261,79 @@ var Perform = {
                 });
             });
         });
+    };
+
+    function predicate(b) {
+        return typeof b === 'function' ? b : function(ctx, a) {
+            if (typeof a === 'string' && typeof b === 'string') {
+                ctx.log("Comparing strings " + JSON.stringify(a) + " and " + JSON.stringify(b));
+                return normaliseString(a) == normaliseString(b);
+            }
+            return a == b;
+        };
     }
-};
 
-var extension_Not = function() {
-    var on = this;
-    return extend_Confirm(function(ctx) {
-        return on(ctx).then(function(val) {
-            return !val;
+    predicate.contains = function(b) {
+        return function(ctx, a) {
+            if (typeof a === 'string' && typeof b === 'string') {
+                ctx.log("Looking in " + JSON.stringify(a) + " for " + JSON.stringify(b));
+                return normaliseString(a).indexOf(normaliseString(b)) != -1;
+            }
+            return false;
+        };
+    };
+
+    function extension_Not() {
+        var on = this;
+        return condition(function(ctx) {
+            return on(ctx).then(function(val) {
+                ctx.log('Not: returning ' + !val + ' instead of ' + val);
+                return !val;
+            });
         });
-    });
-};
+    }
 
-var extension_And = function(other) {
-    var on = this;
-    return extend_Confirm(function(ctx) {
-        return on(ctx).then(function(val1) {
-            return val1 && other(ctx);
+    function extension_And(other) {
+        var on = this;
+        return condition(function(ctx) {
+            return on(ctx).then(function(val1) {
+                return val1 && other(ctx);
+            });
         });
-    });
-};
+    }
 
-var extension_Or = function(other) {
-    var on = this;
-    return extend_Confirm(function(ctx) {
-        return on(ctx).then(function(val1) {
-            return val1 || other(ctx);
+    function extension_Or(other) {
+        var on = this;
+        return condition(function(ctx) {
+            return on(ctx).then(function(val1) {
+                return val1 || other(ctx);
+            });
         });
-    });
-};
+    }
 
-var extend_Confirm = function(on) {
-    var ext = checkShouldQuit(on);
-    ext.Not = extension_Not;
-    ext.And = extension_And;
-    ext.Or = extension_Or;
-    return ext;
-};
+    function condition(on) {
+        var ext = wrapCheckShouldQuit(on);
+        ext.not = extension_Not;
+        ext.and = extension_And;
+        ext.or = extension_Or;
+        return ext;
+    }
 
-var Confirm = {
-    Extend: extend_Confirm,
-
-    Exists: function(cssElem) {
-        return extend_Confirm(function(ctx) {
+    condition.exists = function(cssElem) {
+        return condition(function(ctx) {
             return ctx.driver.isElementPresent(webdriver.By.css(cssElem)).then(function(r) {
                 if (!r) {
                     ctx.log('Does not exist: ' + cssElem);
+                } else {
+                    ctx.log('Exists: ' + cssElem);
                 }
                 return r;
             });
         });
-    },
+    };
 
-    LocationEndsWith: function(endsWith) {
-        return extend_Confirm(function(ctx) {
+    condition.locationEndsWith = function(endsWith) {
+        return condition(function(ctx) {
             return ctx.driver.getCurrentUrl().then(function(url) {
                 var r = url.endsWith(endsWith) || url.endsWith(endsWith + '/');
                 if (!r) {
@@ -316,188 +342,188 @@ var Confirm = {
                 return r;
             });
         });
-    },
+    };
 
-    WithFrame: function(cssFrame, test) {
-        return extend_Confirm(function(ctx) {
-            return Perform.WithFrame(cssFrame, test)(ctx);
+    condition.withFrame = function(cssFrame, test) {
+        return condition(function(ctx) {
+            return action.withFrame(cssFrame, test)(ctx);
         });
-    },
+    };
 
-    CountIs: function(cssElem, expected) {
-        return extend_Confirm(function(ctx) {
+    condition.countIs = function(cssElem, expected) {
+        return condition(function(ctx) {
             return ctx.driver.findElements(webdriver.By.css(cssElem)).then(function(actual) {
                 var r = expected === actual.length;
                 if (!r) {
                     ctx.log('Count of ' + cssElem + ' should be ' + expected +
-                            ' but is ' + actual.length);
+                        ' but is ' + actual.length);
                 }
                 return r;
             });
         });
-    },
+    };
 
-    Same: function(b) {
-        return function(ctx, a) {
-            if (typeof a === 'string' && typeof b === 'string') {
-                ctx.log("Comparing strings " + JSON.stringify(a) + " and " + JSON.stringify(b));
-                return normaliseString(a) == normaliseString(b);
-            }
-            return a == b;
-        };
-    },
-
-    Contains: function(b) {
-        return function(ctx, a) {
-            if (typeof a === 'string' && typeof b === 'string') {
-                ctx.log("Looking in " + JSON.stringify(a) + " for " + JSON.stringify(b));
-                return normaliseString(a).indexOf(normaliseString(b)) != -1;
-            }
-            return false;
-        };
-    },
-
-    EvaluatesTo: function(js, predicate) {
-        if (typeof predicate !== 'function') {
-            throw new Error('predicate is not a function');
-        }
-        return extend_Confirm(function(ctx) {
+    condition.evaluatesTo = function(js, pred) {
+        pred = predicate(pred);
+        return condition(function(ctx) {
             return ctx.driver.executeScript("return " + js).then(function(actual) {
-                return predicate(ctx, actual);
+                return pred(ctx, actual);
             });
         });
-    },
+    };
 
-    PropertyIs: function(css, prop, predicate) {
-        return Confirm.EvaluatesTo("window.$ && $(" + JSON.stringify(css) + ")." + prop + "()", predicate);
-    },
+    condition.propertyIs = function(css, prop, pred) {
+        return condition.evaluatesTo("window.$ && $(" + JSON.stringify(css) + ")." + prop + "()", pred);
+    };
 
-    ValueIs: function(css, predicate) {
-        return Confirm.PropertyIs(css, "val", predicate);
-    },
+    condition.valueIs = function(css, pred) {
+        return condition.propertyIs(css, "val", pred);
+    };
 
-    IsChecked: function(css) {
-        return extend_Confirm(function(ctx) {
-            return Perform.AwaitElement(ctx, css).then(function(elem) {
+    condition.isChecked = function(css) {
+        return condition(function(ctx) {
+            return awaitElement(ctx, css).then(function(elem) {
                 return elem.isSelected();
             });
         });
-    },
+    };
 
-    IsDisabled: function(css) {
-        return extend_Confirm(function(ctx) {
-            return Perform.AwaitElement(ctx, css).then(function(elem) {
+    condition.isDisabled = function(css) {
+        return condition(function(ctx) {
+            return awaitElement(ctx, css).then(function(elem) {
                 return elem.isEnabled().then(function(en) {
                     return !en;
                 });
             });
         });
-    },
+    };
 
-    TextIs: function(css, predicate) {
-        return extend_Confirm(function(ctx) {
-            return Perform.AwaitElement(ctx, css).then(function(elem) {
+    condition.textIs = function(css, pred) {
+        pred = predicate(pred);
+        return condition(function(ctx) {
+            return awaitElement(ctx, css).then(function(elem) {
                 return elem.getText().then(function (text) {
-                    return predicate(ctx, text);
+                    return pred(ctx, text);
                 });
             });
         });
-    },
+    };
 
-    HtmlIs: function(css, predicate) {
-        return extend_Confirm(function(ctx) {
-            return Perform.AwaitElement(ctx, css).then(function(elem) {
+    condition.htmlIs = function(css, pred) {
+        pred = predicate(pred);
+        return condition(function(ctx) {
+            return awaitElement(ctx, css).then(function(elem) {
                 return elem.getInnerHtml().then(function (html) {
-                    return predicate(ctx, html);
+                    return pred(ctx, html);
                 });
             });
         });
-    }
-};
+    };
 
-var WebDriverStep = function(description, action, postCondition) {
-    return {
-        description: function() {
-            return description;
-        },
-        execute: function(ctx) {
-            return Perform.Retry(function() {
-                return postCondition(ctx).then(function(result) {
-                    if (result) {
-                        throw new Error("Post-condition already true!");
-                    }
-                });
-            }).then(function() {
-                return Perform.Retry(function() {
-                    return action(ctx).then(function() {
-                        return Perform.Retry(function() {
-                            return postCondition(ctx).then(function(result) {
-                                if (!result) {
-                                    throw new Error("Post-condition is false!");
-                                }
+    var step = function(description, action, postCondition) {
+        return {
+            description: function() {
+                return description;
+            },
+            execute: function(ctx) {
+                return retry(ctx, function(attemptNumber) {
+                    ctx.log('Pre-condition attempt ' + attemptNumber);
+                    return postCondition(ctx).then(function(result) {
+                        if (result) {
+                            throw new Error("Post-condition already true!");
+                        }
+                    });
+                }).then(function() {
+                    return retry(ctx, function(attemptNumber) {
+                        ctx.log('Action attempt ' + attemptNumber);
+                        return action(ctx).thenFinally(function(x) {
+                            if (x instanceof ShouldQuitError) {
+                                throw x;
+                            }
+                            return retry(ctx, function(attemptNumber) {
+                                ctx.log('Post-condition ' + attemptNumber);
+                                return postCondition(ctx).then(function(result) {
+                                    if (!result) {
+                                        throw new Error("Post-condition is false!");
+                                    }
+                                });
                             });
                         });
                     });
                 });
-            });
-        }
+            }
+        };
     };
-};
 
-var Sequence = function(description, steps) {
-    return {
-        description: function() {
-            return description;
-        },
-        nestedSteps: function() {
-            return steps;
-        }
-    };
-};
-
-var Steps = {
-
-    InputText: function(inputCss, value) {
-        return new WebDriverStep("Input text: " + inputCss + " <= " + value,
-            Perform.InputText(inputCss, value),
-            Confirm.ValueIs(inputCss, Confirm.Same(value))
+    step.inputText = function(inputCss, value) {
+        return step("Input text: " + inputCss + " <= " + value,
+            action.inputText(inputCss, value),
+            condition.valueIs(inputCss, value)
         );
-    },
+    };
 
-    SetProperty: function(elemCss, prop, val) {
-        return new WebDriverStep("Setting " + prop + " property of " + elemCss + " to " + val,
-            Perform.SetProperty(elemCss, prop, val),
-            Confirm.PropertyIs(elemCss, prop, Confirm.Same(val))
+    step.setProperty = function(elemCss, prop, val) {
+        return step("Setting " + prop + " property of " + elemCss + " to " + val,
+            action.setProperty(elemCss, prop, val),
+            condition.propertyIs(elemCss, prop, val)
         );
-    },
+    };
 
-    SetValue: function(elemCss, val) {
-        return Steps.SetProperty(elemCss, "val", val);
-    }
-};
+    step.setValue = function(elemCss, val) {
+        return step.setProperty(elemCss, "val", val);
+    };
 
-var ExecuteOnlyStep = function(description, perform) {
+    var sequence = function(description, steps) {
+        return {
+            description: function() {
+                return description;
+            },
+            nestedSteps: function() {
+                return steps;
+            }
+        };
+    };
+
+    var unconditional = function(description, perform) {
+        return {
+            execute: function(ctx) {
+                return perform(ctx);
+            },
+            description: function() {
+                return description;
+            }
+        };
+    };
+
+    var conditional = function(condition, step) {
+        return {
+            execute: function(ctx) {
+                return retry(ctx, function(attemptNumber) {
+                    ctx.log('Evaluating condition for conditional step, attempt: ' + attemptNumber);
+                    return condition(ctx);
+                }).then(function() {
+                    return step.execute(ctx);
+                });
+            },
+            description: function() {
+                return step.description();
+            }
+        };
+    };
+
     return {
-        execute: function(ctx) {
-            return perform(ctx);
-        },
-        description: function() {
-            return description;
+        action: action,
+        condition: condition,
+        predicate: predicate,
+        step: step,
+        sequence: sequence,
+        unconditional: unconditional,
+        conditional: conditional,
+        element: awaitElement,
+        flow: {
+            until: until,
+            retry: retry,
+            forEach: forEach
         }
     };
-};
-
-var ConditionalWebDriverStep = function(condition, step) {
-    return {
-        execute: function(ctx) {
-            return Perform.Until(function() {
-                return condition(ctx);
-            }).then(function(result) {
-                return !result || step.execute(ctx);
-            });
-        },
-        description: function() {
-            return step.description();
-        }
-    };
-};
+})();

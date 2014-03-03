@@ -6,6 +6,7 @@ var fs = require('fs');
 var viewModel = {
     testFile: ko.observable(''),
     selectedTestFile: ko.observable(''),
+    loadErrorMessage: ko.observable('To get started, load a test script.'),
     steps: ko.observableArray(),
     selectedStep: ko.observable(null)
 };
@@ -101,7 +102,7 @@ var addStep = function(step, depth, id) {
 
     stepModel.log = function(msg) {
         stepModel.status(msg);
-        stepModel.logs.push(msg);
+        stepModel.logs.unshift(msg);
         element.scrollIntoView(false);
     };
 
@@ -260,11 +261,15 @@ ko.computed(function() {
 
     var rootDir = path.dirname(viewModel.testFile());
 
-    var testLoad = function(name) {
+    var testLoadText = function(name) {
         return fs.readFileSync(path.join(rootDir, name), 'utf8');
     };
 
     var testModules = {}, requireStack = {};
+
+    var declareApi = Object.keys(fumo).map(function(member) {
+        return 'var ' + member + ' = fumo.' + member + ';\n';
+    }).join('');
 
     var testRequire = function(name) {
         if (!path.extname(name)) {
@@ -288,8 +293,8 @@ ko.computed(function() {
         requireStack[name] = true;
 
         result = (new Function(
-            'exports', 'module', 'require, Load',
-            source + '\nreturn module;')(exports, module, testRequire, testLoad)).exports;
+            'exports', 'module', 'require, loadText',
+            declareApi + source + '\nreturn module;')(exports, module, testRequire, testLoadText)).exports;
 
         requireStack[name] = false;
         testModules[name] = result;
@@ -300,17 +305,18 @@ ko.computed(function() {
     try {
         testRoot = testRequire(path.basename(viewModel.testFile()));
     } catch (x) {
-        alert(x.toString() + '\n\n' + printStackTrace({ e: x }).join('\n\n'));
+        viewModel.loadErrorMessage(x.toString());
         return;
     }
 
-    if (!testRoot || !testRoot.RootStep) {
-        alert('Test script did not export RootStep');
+    if (!testRoot || !testRoot.root) {
+        viewModel.loadErrorMessage('Test script did not export root');
         return;
     }
 
+    viewModel.loadErrorMessage('');
     viewModel.steps.removeAll();
-    addStep(testRoot.RootStep, 0);
+    addStep(testRoot.root, 0);
 });
 
 window.onload = function() {

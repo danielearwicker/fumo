@@ -59,6 +59,10 @@
             .stepStatus {
                 color: #2f4f4f;
             }
+            .stepLogsContainer {
+                max-height: 200px;
+                overflow: auto;
+            }
             .stepLogs {
                 font-size: 9pt;
             }
@@ -92,6 +96,7 @@
             </div>
         </div>
         <div class="stepList">
+            <div data-bind="text: loadErrorMessage"></div>
             <div data-bind="foreach: steps">
                 <div>
                     <div class="step"
@@ -115,8 +120,10 @@
                         </div>
                         <div>
                             <!-- ko if: showingLogs -->
-                            <div class="stepLogs" data-bind="foreach: logs">
-                                <div data-bind="text: $data"></div>
+                            <div class="stepLogsContainer">
+                                <div class="stepLogs" data-bind="foreach: logs">
+                                    <div data-bind="text: $data"></div>
+                                </div>
                             </div>
                             <!-- /ko -->
                             <!-- ko if: !showingLogs() -->
