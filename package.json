@@ -1,14 +1,20 @@
 {
-  "name": "fumo",
-  "main": "index.html",
-  "version": "0.1.0",
-  "description": "node-webkit + selenium = declarative/interactive UI testing",
-  "author": "Daniel Earwicker <dan@earwicker.com> (http://earwicker.com/)",
-  "repository": { 
-	"type" : "git", 
-	"url" : "https://github.com/danielearwicker/fumo.git"
-  },
-  "dependencies": {
-    "selenium-webdriver": "~2.40.0"
-  }
+    "name": "fumo",
+    "main": "index.html",
+    "version": "0.1.0",
+    "description": "node-webkit + selenium = declarative/interactive UI testing",
+    "author": "Daniel Earwicker <dan@earwicker.com> (http://earwicker.com/)",
+    "repository": {
+    "type" : "git",
+    "url" : "https://github.com/danielearwicker/fumo.git"
+    },
+    "window": {
+        "icon": "img/pass.png",
+        "toolbar": false,
+        "min_width": 600,
+        "min_height": 500
+    },
+    "dependencies": {
+        "selenium-webdriver": "~2.40.0"
+    }
 }

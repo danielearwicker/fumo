@@ -6,6 +6,24 @@ var fumo = (function() {
 
     ShouldQuitError.prototype = new Error();
 
+    var settingValues = {};
+
+    function extract(val) {
+        if (Array.isArray(val)) {
+            return val.map(function(item) {
+                return extract(item);
+            });
+        }
+        if (val && val.__settingName$) {
+            return settingValues[val.__settingName$];
+        }
+        return val;
+    }
+
+    function setting(name) {
+        return { __settingName$: name };
+    }
+
     function wrapCheckShouldQuit(on) {
         return function(ctx) {
             if (ctx.shouldQuit) {
@@ -92,24 +110,26 @@ var fumo = (function() {
     }
 
     function awaitElement(ctx, path) {
-
-        ctx.log('Finding ' + JSON.stringify(path));
-
+        path = extract(path);
         if (!Array.isArray(path)) {
             path = [path];
         }
 
         path = path.map(function(part) {
+            part = extract(part);
+
             if (typeof part === 'string') {
                 return webdriver.By.css(part);
             }
             if (part.css) {
-                return webdriver.By.css(part.css);
+                return webdriver.By.css(extract(part.css));
             }
             if (part.xpath) {
-                return webdriver.By.xpath(part.xpath);
+                return webdriver.By.xpath((part.xpath));
             }
         });
+
+        ctx.log('Finding ' + JSON.stringify(path));
 
         return retry(ctx, function() {
 
@@ -159,7 +179,7 @@ var fumo = (function() {
 
     action.click = function(cssElem) {
         return action(function(ctx) {
-            ctx.log('Clicking ' + cssElem);
+            ctx.log('Clicking ' + extract(cssElem));
             return awaitElement(ctx, cssElem).then(function(elem) {
                 return elem.click();
             });
@@ -168,10 +188,10 @@ var fumo = (function() {
 
     action.inputText = function(cssElem, text, extraKeys) {
         return action(function(ctx) {
-            ctx.log('Entering text "' + text + '" into ' + cssElem);
+            ctx.log('Entering text "' + extract(text) + '" into ' + extract(cssElem));
             return awaitElement(ctx, cssElem).then(function(elem) {
                 var chain = elem.clear().then(function() {
-                    return elem.sendKeys(text);
+                    return elem.sendKeys(extract(text));
                 });
                 return extraKeys === false ? chain : chain.then(function() {
                     return elem.sendKeys(webdriver.Key.HOME)
@@ -187,7 +207,7 @@ var fumo = (function() {
             keyArray = [keyArray];
         }
         return action(function(ctx) {
-            return forEach(ctx, keyArray, function(key) {
+            return forEach(ctx, extract(keyArray), function(key) {
                 ctx.log('Pressing key "' + key + '"');
                 var keyStr = webdriver.Key[key.toUpperCase()];
                 if (keyStr === void 0) {
@@ -202,15 +222,15 @@ var fumo = (function() {
 
     action.navigate = function(url) {
         return action(function(ctx) {
-            ctx.log('Navigating to ' + url);
-            return ctx.driver.get(url);
+            ctx.log('Navigating to ' + extract(url));
+            return ctx.driver.get(extract(url));
         });
     };
 
     action.withFrame = function(frameCss, on) {
         return action(function(ctx) {
-            ctx.log("Switching to frame " + frameCss);
-            return awaitElement(ctx, frameCss).then(function(frameElem) {
+            ctx.log("Switching to frame " + extract(frameCss));
+            return awaitElement(ctx, extract(frameCss)).then(function(frameElem) {
                 return ctx.driver.switchTo().frame(frameElem).then(function() {
                     return on(ctx).then(function(result) {
                         return ctx.driver.switchTo().defaultContent().then(function() {
@@ -228,18 +248,19 @@ var fumo = (function() {
 
     action.execute = function(js) {
         return action(function(ctx) {
-            ctx.log('Executing: ' + js);
-            return ctx.driver.executeScript(js);
+            ctx.log('Executing: ' + extract(js));
+            return ctx.driver.executeScript(extract(js));
         });
     };
 
     action.setProperty = function(css, prop, val) {
-        return action.execute("$('" + css + "')." + prop + "(" + JSON.stringify(val) + ")");
+        return action.execute("$('" + extract(css) + "')." +
+            extract(prop) + "(" + JSON.stringify(extract(val)) + ")");
     };
 
     action.moveTo = function(cssElem) {
         return action(function(ctx) {
-            ctx.log('Moving mouse to: ' + cssElem);
+            ctx.log('Moving mouse to: ' + extract(cssElem));
             return awaitElement(ctx, cssElem).then(function(elem) {
                 return new webdriver.ActionSequence(ctx.driver)
                     .mouseMove(elem)
@@ -250,7 +271,7 @@ var fumo = (function() {
 
     action.dragAndDrop = function(cssDrag, cssDrop, x, y) {
         return action(function(ctx) {
-            ctx.log('Dragging ' + cssDrag + ' and dropping on ' + cssDrop);
+            ctx.log('Dragging ' + extract(cssDrag) + ' and dropping on ' + (cssDrop));
             return awaitElement(ctx, cssDrag).then(function(elemDrag) {
                 return awaitElement(ctx, cssDrop).then(function(elemDrop) {
                     return new webdriver.ActionSequence(ctx.driver)
@@ -265,6 +286,8 @@ var fumo = (function() {
 
     function predicate(b) {
         return typeof b === 'function' ? b : function(ctx, a) {
+            a = extract(a);
+            b = extract(b);
             if (typeof a === 'string' && typeof b === 'string') {
                 ctx.log("Comparing strings " + JSON.stringify(a) + " and " + JSON.stringify(b));
                 return normaliseString(a) == normaliseString(b);
@@ -275,6 +298,8 @@ var fumo = (function() {
 
     predicate.contains = function(b) {
         return function(ctx, a) {
+            a = extract(a);
+            b = extract(b);
             if (typeof a === 'string' && typeof b === 'string') {
                 ctx.log("Looking in " + JSON.stringify(a) + " for " + JSON.stringify(b));
                 return normaliseString(a).indexOf(normaliseString(b)) != -1;
@@ -321,11 +346,11 @@ var fumo = (function() {
 
     condition.exists = function(cssElem) {
         return condition(function(ctx) {
-            return ctx.driver.isElementPresent(webdriver.By.css(cssElem)).then(function(r) {
+            return ctx.driver.isElementPresent(webdriver.By.css(extract(cssElem))).then(function(r) {
                 if (!r) {
-                    ctx.log('Does not exist: ' + cssElem);
+                    ctx.log('Does not exist: ' + extract(cssElem));
                 } else {
-                    ctx.log('Exists: ' + cssElem);
+                    ctx.log('Exists: ' + extract(cssElem));
                 }
                 return r;
             });
@@ -335,9 +360,10 @@ var fumo = (function() {
     condition.locationEndsWith = function(endsWith) {
         return condition(function(ctx) {
             return ctx.driver.getCurrentUrl().then(function(url) {
-                var r = url.endsWith(endsWith) || url.endsWith(endsWith + '/');
+                var ew = extract(endsWith);
+                var r = url.endsWith(ew) || url.endsWith(ew + '/');
                 if (!r) {
-                    ctx.log('Location should end with ' + endsWith + ' but is ' + url);
+                    ctx.log('Location should end with ' + ew + ' but is ' + url);
                 }
                 return r;
             });
@@ -352,6 +378,7 @@ var fumo = (function() {
 
     condition.countIs = function(cssElem, expected) {
         return condition(function(ctx) {
+            cssElem = extract(cssElem);
             return ctx.driver.findElements(webdriver.By.css(cssElem)).then(function(actual) {
                 var r = expected === actual.length;
                 if (!r) {
@@ -373,7 +400,8 @@ var fumo = (function() {
     };
 
     condition.propertyIs = function(css, prop, pred) {
-        return condition.evaluatesTo("window.$ && $(" + JSON.stringify(css) + ")." + prop + "()", pred);
+        return condition.evaluatesTo("window.$ && $(" +
+            JSON.stringify(extract(css)) + ")." + extract(prop) + "()", pred);
     };
 
     condition.valueIs = function(css, pred) {
@@ -512,6 +540,10 @@ var fumo = (function() {
     };
 
     return {
+        updateSetting: function(name, val) {
+            settingValues[name] = val;
+        },
+        setting: setting,
         action: action,
         condition: condition,
         predicate: predicate,

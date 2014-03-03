@@ -8,7 +8,11 @@ var viewModel = {
     selectedTestFile: ko.observable(''),
     loadErrorMessage: ko.observable('To get started, load a test script.'),
     steps: ko.observableArray(),
-    selectedStep: ko.observable(null)
+    selectedStep: ko.observable(null),
+    settings: ko.observableArray(),
+    interactiveCode: ko.observable(''),
+    interactiveResult: ko.observable(''),
+    interactiveTrying: ko.observable(false)
 };
 
 ko.computed(function() {
@@ -17,6 +21,12 @@ ko.computed(function() {
         viewModel.selectedTestFile('');
     }
 });
+
+var previouslyLoaded = localStorage.getItem('previouslyLoaded');
+localStorage.setItem('previouslyLoaded', null); // protect from crashing
+if (previouslyLoaded) {
+    viewModel.testFile(previouslyLoaded);
+}
 
 viewModel.reload = function() {
     var path = viewModel.testFile();
@@ -183,7 +193,7 @@ var runOneStep = function() {
         rs.showingLogs(true);
 
         runningContext({
-            driver: driver(),
+            driver: getDriver(),
             log: function(str) {
                 rs.log(str);
             }
@@ -218,17 +228,26 @@ viewModel.canStart = ko.computed(function() {
     return firstEnabledStep() && !runningContext();
 });
 
+var getDriver = function() {
+    if (!driver()) {
+        driver(
+            new webdriver.Builder().withCapabilities(
+                webdriver.Capabilities.chrome()).build()
+        );
+    }
+    return driver();
+};
+
 viewModel.start = function() {
     if (runningContext()) {
         return;
     }
 
-    if (!driver()) {
-        driver(
-            new webdriver.Builder().withCapabilities(
-                    webdriver.Capabilities.chrome()).build()
-        );
-    }
+    viewModel.settings().forEach(function(settingModel) {
+        fumo.updateSetting(settingModel.name, settingModel.value());
+        localStorage.setItem('testSetting_' + settingModel.name, settingModel.value());
+    });
+
     runOneStep();
 };
 
@@ -254,6 +273,10 @@ viewModel.reset = function() {
     }
 };
 
+var declareApi = Object.keys(fumo).map(function(member) {
+    return 'var ' + member + ' = fumo.' + member + ';\n';
+}).join('');
+
 ko.computed(function() {
     if (!viewModel.testFile()) {
         return;
@@ -266,10 +289,6 @@ ko.computed(function() {
     };
 
     var testModules = {}, requireStack = {};
-
-    var declareApi = Object.keys(fumo).map(function(member) {
-        return 'var ' + member + ' = fumo.' + member + ';\n';
-    }).join('');
 
     var testRequire = function(name) {
         if (!path.extname(name)) {
@@ -314,10 +333,87 @@ ko.computed(function() {
         return;
     }
 
+    if (!testRoot.settings) {
+        viewModel.settings.removeAll();
+    } else {
+        viewModel.settings().filter(function(settingModel) {
+            return !testRoot.settings.some(function(setting) {
+                return setting.name === settingModel.name;
+            });
+        }).forEach(function(settingModel) {
+            viewModel.settings.remove(settingModel);
+        });
+        testRoot.settings.forEach(function(setting) {
+            if (!viewModel.settings().some(function(settingModel) {
+                return settingModel.name === setting.name;
+            })) {
+                var val = localStorage.getItem('testSetting_' + setting.name);
+                if (val === null) {
+                    val = (setting.init !== (void 0)) ? setting.init : '';
+                }
+                viewModel.settings.push({
+                    name: setting.name,
+                    value: ko.observable(val)
+                });
+            }
+        });
+    }
+
     viewModel.loadErrorMessage('');
     viewModel.steps.removeAll();
     addStep(testRoot.root, 0);
+    localStorage.setItem('previouslyLoaded', viewModel.testFile());
 });
+
+viewModel.interactiveKeyDown = function(m, ev) {
+    if (ev.keyCode === 13) {
+        viewModel.interactiveTry();
+        return false;
+    }
+    return true;
+};
+
+viewModel.interactiveTry = function() {
+    var code = viewModel.interactiveCode();
+    if (!code) {
+        return;
+    }
+    viewModel.interactiveResult('');
+    viewModel.interactiveTrying(true);
+
+    var log = function(str) {
+        viewModel.interactiveResult(str + "\n" + viewModel.interactiveResult());
+    };
+
+    try {
+        var result = (new Function('', declareApi + 'return ' + code))();
+        if (typeof result === 'function') {
+            var prom = result({
+                driver: getDriver(),
+                log: log
+            });
+            if (!prom) {
+                log('No promise returned');
+                viewModel.interactiveTrying(false);
+            } else {
+                prom.then(function(val) {
+                    log('Result: ' + val);
+                    viewModel.interactiveTrying(false);
+                }, function(x) {
+                    log(x.toString());
+                    log('(Did you remember to close the debugger in the target browser?)');
+                    viewModel.interactiveTrying(false);
+                })
+            }
+        } else {
+            log('Was not a valid action or condition function');
+            viewModel.interactiveTrying(false);
+        }
+    } catch (x) {
+        viewModel.interactiveTrying(false);
+        log(x.toString());
+    }
+};
 
 window.onload = function() {
     ko.applyBindings(viewModel);
@@ -335,3 +431,7 @@ win.on('close', function() {
         forceClose();
     }
 });
+
+viewModel.debug = function() {
+    win.showDevTools();
+}

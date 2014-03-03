@@ -12,7 +12,7 @@
             body {
                 font-family: Helvetica, Segoe, Arial;
                 font-size: 10pt;
-                background: #fff8e6;
+                background: #c9ddef;
             }
             .toolBar {
                 position: absolute;
@@ -21,16 +21,44 @@
                 right: 4px;
                 height: 58px;
             }
+            .leftPane {
+                position: absolute;
+                left: 0;
+                top: 58px;
+                width: 60%;
+                bottom: 0;
+            }
+            .rightPane {
+                position: absolute;
+                right: 0;
+                top: 58px;
+                width: 40%;
+                bottom: 0;
+            }
+            .rightUpperPane {
+                position: absolute;
+                left: 0;
+                right: 0;
+                top: 0;
+                height: 50%;
+            }
+            .rightLowerPane {
+                position: absolute;
+                left: 0;
+                right: 0;
+                height: 50%;
+                bottom: 0;
+            }
             .stepList {
                 position: absolute;
                 left: 4px;
-                top: 58px;
-                right: 4px;
+                top: 0;
+                right: 2px;
                 bottom: 4px;
                 overflow: auto;
                 border-radius: 4px;
                 border: 1px solid gray;
-                background: #ffefd5;
+                background: #ede6d4;
             }
             .step {
                 margin-top: 4px;
@@ -73,6 +101,63 @@
                 text-decoration: underline;
                 color: #00008b;
             }
+
+            .settings {
+                position: absolute;
+                left: 2px;
+                top: 0;
+                right: 4px;
+                bottom: 4px;
+                overflow: auto;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #ddfff3;
+            }
+            .setting {
+                margin: 3px;
+            }
+            .setting input {
+                width: 97%
+            }
+
+            .interactive {
+                position: absolute;
+                left: 2px;
+                top: 0;
+                right: 4px;
+                bottom: 4px;
+                overflow: auto;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #ede1ff;
+            }
+            .interactiveInputWrapper {
+                position: absolute;
+                left: 4px;
+                top: 4px;
+                right: 70px;
+                height: 24px;
+            }
+            .interactiveInputWrapper input {
+                width: 100%;
+            }
+            .interactiveTry {
+                position: absolute;
+                right: 4px;
+                top: 5px;
+                width: 60px;
+                height: 24px;
+            }
+            .interactiveResult {
+                position: absolute;
+                left: 4px;
+                top: 32px;
+                right: 4px;
+                bottom: 4px;
+                overflow: auto;
+                border: 1px solid silver;
+                background: white;
+            }
         </style>
     </head>
     <body>
@@ -93,51 +178,82 @@
                 <button data-bind="click: first">First</button>
                 <button data-bind="click: last">Last</button>
                 <!-- /ko -->
+                <button data-bind="click: debug">Debug</button>
             </div>
         </div>
-        <div class="stepList">
-            <div data-bind="text: loadErrorMessage"></div>
-            <div data-bind="foreach: steps">
-                <div>
-                    <div class="step"
-                         data-bind="css: {
-                                        running: running,
-                                        stepDisabled: !isEnabled(),
-                                        stepSelected: $parent.selectedStep() === $data
-                                    },
-                                    style: { marginLeft: (4 + (depth * 24))+'px' },
-                                    event: { click: select },
-                                    initElement: initElement">
-                        <img data-bind="attr: { src: 'img/' + image() + '.png' }">
-                        <div>
-                            <label>
-                                <input type="checkbox"
-                                       data-bind="checked: isEnabled,
-                                                  properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
-                                <span class="stepId" data-bind="text: id"></span>
-                                <span class="stepDescription" data-bind="text: description"></span>
-                            </label>
-                        </div>
-                        <div>
-                            <!-- ko if: showingLogs -->
-                            <div class="stepLogsContainer">
-                                <div class="stepLogs" data-bind="foreach: logs">
-                                    <div data-bind="text: $data"></div>
-                                </div>
+        <div class="leftPane">
+            <div class="stepList">
+                <div data-bind="text: loadErrorMessage"></div>
+                <div data-bind="foreach: steps">
+                    <div>
+                        <div class="step"
+                             data-bind="css: {
+                                            running: running,
+                                            stepDisabled: !isEnabled(),
+                                            stepSelected: $parent.selectedStep() === $data
+                                        },
+                                        style: { marginLeft: (4 + (depth * 24))+'px' },
+                                        event: { click: select },
+                                        initElement: initElement">
+                            <img data-bind="attr: { src: 'img/' + image() + '.png' }">
+                            <div>
+                                <label>
+                                    <input type="checkbox"
+                                           data-bind="checked: isEnabled,
+                                                      properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
+                                    <span class="stepId" data-bind="text: id"></span>
+                                    <span class="stepDescription" data-bind="text: description"></span>
+                                </label>
                             </div>
-                            <!-- /ko -->
-                            <!-- ko if: !showingLogs() -->
-                            <span class="stepStatus" data-bind="text: status"></span>
-                            <!-- /ko -->
-                            <!-- ko if: logs().length > 1 -->
-                            <a data-bind="click: function() { showingLogs(!showingLogs()) },
-                                          text: showingLogs() ? 'Less' : 'More'"></a>
-                            <!-- /ko -->
-                        </div>
+                            <div>
+                                <!-- ko if: showingLogs -->
+                                <div class="stepLogsContainer">
+                                    <div class="stepLogs" data-bind="foreach: logs">
+                                        <div data-bind="text: $data"></div>
+                                    </div>
+                                </div>
+                                <!-- /ko -->
+                                <!-- ko if: !showingLogs() -->
+                                <span class="stepStatus" data-bind="text: status"></span>
+                                <!-- /ko -->
+                                <!-- ko if: logs().length > 1 -->
+                                <a data-bind="click: function() { showingLogs(!showingLogs()) },
+                                              text: showingLogs() ? 'Less' : 'More'"></a>
+                                <!-- /ko -->
+                            </div>
 
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+        <div class="rightPane">
+            <div class="rightUpperPane">
+                <div class="settings">
+                    <div data-bind="foreach: settings">
+                        <div class="setting">
+                            <div data-bind="text: name"></div>
+                            <div><input type="text" data-bind="value: value"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="rightLowerPane">
+                <div class="interactive">
+                    <div class="interactiveInputWrapper">
+                        <input type="text"
+                               data-bind="value: interactiveCode,
+                                          event: { keyup: interactiveKeyDown }">
+                    </div>
+                    <button class="interactiveTry"
+                            data-bind="click: interactiveTry,
+                                       enable: !interactiveTrying()">Try</button>
+                    <div class="interactiveResult">
+                        <pre data-bind="text: interactiveResult"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </body>
 </html>
