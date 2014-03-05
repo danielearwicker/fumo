@@ -1,27 +1,31 @@
-var fumo = (function() {
+function ShouldQuitError() {
+    this.message = "Stopped by user";
+}
 
-    function ShouldQuitError() {
-        this.message = "Stopped by user";
+ShouldQuitError.prototype = new Error();
+
+function storeFumoSetting(name, value) {
+    name = 'testSetting_' + name;
+    if (value === null) {
+        localStorage.removeItem(name);
+    } else {
+        localStorage.setItem(name, value);
     }
+}
 
-    ShouldQuitError.prototype = new Error();
+var makeFumoApi = function(settingValues) {
 
-    var settingValues = {};
-
-    function extract(val) {
-        if (Array.isArray(val)) {
-            return val.map(function(item) {
-                return extract(item);
-            });
+    function setting(name, defaultValue) {
+        if (!(name in settingValues)) {
+            var val = localStorage.getItem('testSetting_' + name);
+            if (val !== null) {
+                defaultValue = val;
+            } else if (arguments.length === 1) {
+                defaultValue = '';
+            }
+            settingValues[name] = defaultValue;
         }
-        if (val && val.__settingName$) {
-            return settingValues[val.__settingName$];
-        }
-        return val;
-    }
-
-    function setting(name) {
-        return { __settingName$: name };
+        return settingValues[name];
     }
 
     function wrapCheckShouldQuit(on) {
@@ -77,7 +81,8 @@ var fumo = (function() {
                     if (tries++ > 10) {
                         d.reject(x);
                     } else {
-                        setTimeout(attempt, 50);
+                        ctx.log(x.toString());
+                        setTimeout(attempt, 500);
                     }
                 });
             }
@@ -109,44 +114,53 @@ var fumo = (function() {
         return d;
     }
 
-    function awaitElement(ctx, path) {
-        path = extract(path);
-        if (!Array.isArray(path)) {
-            path = [path];
+    function makeByPath(byPath) {
+        if (!Array.isArray(byPath)) {
+            byPath = [byPath];
         }
 
-        path = path.map(function(part) {
-            part = extract(part);
-
+        return byPath.map(function(part) {
             if (typeof part === 'string') {
                 return webdriver.By.css(part);
             }
             if (part.css) {
-                return webdriver.By.css(extract(part.css));
+                return webdriver.By.css(part.css);
             }
             if (part.xpath) {
                 return webdriver.By.xpath((part.xpath));
             }
         });
+    }
 
-        ctx.log('Finding ' + JSON.stringify(path));
-
-        return retry(ctx, function() {
-
-            var found = ctx.driver;
-
-            return forEach(ctx, path, function(part) {
-                return found.isElementPresent(part).then(function(present) {
-                    if (!present) {
-                        ctx.log('Not found: ' + JSON.stringify(path));
-                        throw new Error('Could not find: ' + JSON.stringify(path));
-                    }
-                    return found.findElement(part).then(function(elem) {
-                        found = elem;
-                    });
+    function resolveByPath(ctx, byPath) {
+        var found = ctx.driver;
+        return forEach(ctx, makeByPath(byPath), function(part) {
+            if (!found) {
+                return null;
+            }
+            return found.isElementPresent(part).then(function(present) {
+                if (!present) {
+                    found = null;
+                    return null;
+                }
+                return found.findElement(part).then(function(elem) {
+                    found = elem;
                 });
-            }).then(function(results) {
-                return found;
+            });
+        }).then(function() {
+            return found;
+        });
+    }
+
+    function awaitElement(ctx, byPath) {
+        ctx.log('Finding ' + JSON.stringify(byPath));
+        return retry(ctx, function() {
+            return resolveByPath(ctx, byPath).then(function(result) {
+                if (!result) {
+                    ctx.log('Not found: ' + JSON.stringify(byPath));
+                    throw new Error('Could not find: ' + JSON.stringify(byPath));
+                }
+                return result;
             });
         });
     }
@@ -179,7 +193,7 @@ var fumo = (function() {
 
     action.click = function(cssElem) {
         return action(function(ctx) {
-            ctx.log('Clicking ' + extract(cssElem));
+            ctx.log('Clicking ' + JSON.stringify(cssElem));
             return awaitElement(ctx, cssElem).then(function(elem) {
                 return elem.click();
             });
@@ -188,10 +202,10 @@ var fumo = (function() {
 
     action.inputText = function(cssElem, text, extraKeys) {
         return action(function(ctx) {
-            ctx.log('Entering text "' + extract(text) + '" into ' + extract(cssElem));
+            ctx.log('Entering text "' + text + '" into ' + JSON.stringify(cssElem));
             return awaitElement(ctx, cssElem).then(function(elem) {
                 var chain = elem.clear().then(function() {
-                    return elem.sendKeys(extract(text));
+                    return elem.sendKeys(text);
                 });
                 return extraKeys === false ? chain : chain.then(function() {
                     return elem.sendKeys(webdriver.Key.HOME)
@@ -207,7 +221,7 @@ var fumo = (function() {
             keyArray = [keyArray];
         }
         return action(function(ctx) {
-            return forEach(ctx, extract(keyArray), function(key) {
+            return forEach(ctx, keyArray, function(key) {
                 ctx.log('Pressing key "' + key + '"');
                 var keyStr = webdriver.Key[key.toUpperCase()];
                 if (keyStr === void 0) {
@@ -220,17 +234,23 @@ var fumo = (function() {
         });
     };
 
-    action.navigate = function(url) {
+    action.navigate = function(url, fullScreen) {
         return action(function(ctx) {
-            ctx.log('Navigating to ' + extract(url));
-            return ctx.driver.get(extract(url));
+            ctx.log('Navigating to ' + url);
+            var chain = ctx.driver.get(url);
+            if (fullScreen) {
+                chain = chain.then(function() {
+                    return ctx.driver.manage().window().maximize();
+                });
+            }
+            return chain;
         });
     };
 
     action.withFrame = function(frameCss, on) {
         return action(function(ctx) {
-            ctx.log("Switching to frame " + extract(frameCss));
-            return awaitElement(ctx, extract(frameCss)).then(function(frameElem) {
+            ctx.log("Switching to frame " + frameCss);
+            return awaitElement(ctx, frameCss).then(function(frameElem) {
                 return ctx.driver.switchTo().frame(frameElem).then(function() {
                     return on(ctx).then(function(result) {
                         return ctx.driver.switchTo().defaultContent().then(function() {
@@ -248,19 +268,19 @@ var fumo = (function() {
 
     action.execute = function(js) {
         return action(function(ctx) {
-            ctx.log('Executing: ' + extract(js));
-            return ctx.driver.executeScript(extract(js));
+            ctx.log('Executing: ' + js);
+            return ctx.driver.executeScript(js);
         });
     };
 
     action.setProperty = function(css, prop, val) {
-        return action.execute("$('" + extract(css) + "')." +
-            extract(prop) + "(" + JSON.stringify(extract(val)) + ")");
+        return action.execute("$('" + css + "')." +
+            prop + "(" + JSON.stringify(val) + ")");
     };
 
     action.moveTo = function(cssElem) {
         return action(function(ctx) {
-            ctx.log('Moving mouse to: ' + extract(cssElem));
+            ctx.log('Moving mouse to: ' + cssElem);
             return awaitElement(ctx, cssElem).then(function(elem) {
                 return new webdriver.ActionSequence(ctx.driver)
                     .mouseMove(elem)
@@ -271,7 +291,7 @@ var fumo = (function() {
 
     action.dragAndDrop = function(cssDrag, cssDrop, x, y) {
         return action(function(ctx) {
-            ctx.log('Dragging ' + extract(cssDrag) + ' and dropping on ' + (cssDrop));
+            ctx.log('Dragging ' + cssDrag + ' and dropping on ' + (cssDrop));
             return awaitElement(ctx, cssDrag).then(function(elemDrag) {
                 return awaitElement(ctx, cssDrop).then(function(elemDrop) {
                     return new webdriver.ActionSequence(ctx.driver)
@@ -286,8 +306,6 @@ var fumo = (function() {
 
     function predicate(b) {
         return typeof b === 'function' ? b : function(ctx, a) {
-            a = extract(a);
-            b = extract(b);
             if (typeof a === 'string' && typeof b === 'string') {
                 ctx.log("Comparing strings " + JSON.stringify(a) + " and " + JSON.stringify(b));
                 return normaliseString(a) == normaliseString(b);
@@ -298,8 +316,6 @@ var fumo = (function() {
 
     predicate.contains = function(b) {
         return function(ctx, a) {
-            a = extract(a);
-            b = extract(b);
             if (typeof a === 'string' && typeof b === 'string') {
                 ctx.log("Looking in " + JSON.stringify(a) + " for " + JSON.stringify(b));
                 return normaliseString(a).indexOf(normaliseString(b)) != -1;
@@ -322,7 +338,19 @@ var fumo = (function() {
         var on = this;
         return condition(function(ctx) {
             return on(ctx).then(function(val1) {
-                return val1 && other(ctx);
+                if (!val1) {
+                    ctx.log('And: first is false, so returning false');
+                    return val1;
+                }
+                ctx.log('And: first is true, so evaluating second');
+                return other(ctx).then(function(val2) {
+                    if (!val2) {
+                        ctx.log('And: second is false, so returning false');
+                    } else {
+                        ctx.log('And: second is true, so returning true');
+                    }
+                    return val2;
+                });
             });
         });
     }
@@ -344,15 +372,15 @@ var fumo = (function() {
         return ext;
     }
 
-    condition.exists = function(cssElem) {
+    condition.exists = function(byPath) {
         return condition(function(ctx) {
-            return ctx.driver.isElementPresent(webdriver.By.css(extract(cssElem))).then(function(r) {
+            return resolveByPath(ctx, byPath).then(function(r) {
                 if (!r) {
-                    ctx.log('Does not exist: ' + extract(cssElem));
+                    ctx.log('Does not exist: ' + JSON.stringify(byPath));
                 } else {
-                    ctx.log('Exists: ' + extract(cssElem));
+                    ctx.log('Exists: ' + JSON.stringify(byPath));
                 }
-                return r;
+                return !!r;
             });
         });
     };
@@ -360,10 +388,9 @@ var fumo = (function() {
     condition.locationEndsWith = function(endsWith) {
         return condition(function(ctx) {
             return ctx.driver.getCurrentUrl().then(function(url) {
-                var ew = extract(endsWith);
-                var r = url.endsWith(ew) || url.endsWith(ew + '/');
+                var r = url.endsWith(endsWith) || url.endsWith(endsWith + '/');
                 if (!r) {
-                    ctx.log('Location should end with ' + ew + ' but is ' + url);
+                    ctx.log('Location should end with ' + endsWith + ' but is ' + url);
                 }
                 return r;
             });
@@ -378,7 +405,6 @@ var fumo = (function() {
 
     condition.countIs = function(cssElem, expected) {
         return condition(function(ctx) {
-            cssElem = extract(cssElem);
             return ctx.driver.findElements(webdriver.By.css(cssElem)).then(function(actual) {
                 var r = expected === actual.length;
                 if (!r) {
@@ -393,6 +419,7 @@ var fumo = (function() {
     condition.evaluatesTo = function(js, pred) {
         pred = predicate(pred);
         return condition(function(ctx) {
+            ctx.log('Evaluating: ' + js);
             return ctx.driver.executeScript("return " + js).then(function(actual) {
                 return pred(ctx, actual);
             });
@@ -401,26 +428,34 @@ var fumo = (function() {
 
     condition.propertyIs = function(css, prop, pred) {
         return condition.evaluatesTo("window.$ && $(" +
-            JSON.stringify(extract(css)) + ")." + extract(prop) + "()", pred);
+            JSON.stringify(css) + ")." + prop + "()", pred);
     };
 
     condition.valueIs = function(css, pred) {
         return condition.propertyIs(css, "val", pred);
     };
 
-    condition.isChecked = function(css) {
+    condition.isChecked = function(css, expected) {
+        if (expected !== false) {
+            expected = true;
+        }
         return condition(function(ctx) {
             return awaitElement(ctx, css).then(function(elem) {
-                return elem.isSelected();
+                return elem.isSelected().then(function(v) {
+                    return v == expected;
+                });
             });
         });
     };
 
-    condition.isDisabled = function(css) {
+    condition.isEnabled = function(css, expected) {
+        if (expected !== false) {
+            expected = true;
+        }
         return condition(function(ctx) {
             return awaitElement(ctx, css).then(function(elem) {
-                return elem.isEnabled().then(function(en) {
-                    return !en;
+                return elem.isEnabled().then(function(v) {
+                    return v == expected;
                 });
             });
         });
@@ -469,7 +504,7 @@ var fumo = (function() {
                                 throw x;
                             }
                             return retry(ctx, function(attemptNumber) {
-                                ctx.log('Post-condition ' + attemptNumber);
+                                ctx.log('Post-condition attempt ' + attemptNumber);
                                 return postCondition(ctx).then(function(result) {
                                     if (!result) {
                                         throw new Error("Post-condition is false!");
@@ -539,15 +574,31 @@ var fumo = (function() {
         };
     };
 
+    var check = function(description, condition) {
+        return {
+            description: function() {
+                return description;
+            },
+            execute: function(ctx) {
+                return retry(ctx, function(attemptNumber) {
+                    ctx.log('Condition attempt ' + attemptNumber);
+                    return condition(ctx).then(function(result) {
+                        if (!result) {
+                            throw new Error("Condition is false!");
+                        }
+                    });
+                });
+            }
+        };
+    };
+
     return {
-        updateSetting: function(name, val) {
-            settingValues[name] = val;
-        },
         setting: setting,
         action: action,
         condition: condition,
         predicate: predicate,
         step: step,
+        check: check,
         sequence: sequence,
         unconditional: unconditional,
         conditional: conditional,
@@ -558,4 +609,4 @@ var fumo = (function() {
             forEach: forEach
         }
     };
-})();
+};
