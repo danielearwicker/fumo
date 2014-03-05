@@ -1,5 +1,3 @@
-///<reference path='fumo.d.ts' />
-///<reference path='ecma-poly.d.ts' />
 import webdriver = require('selenium-webdriver');
 
 export class ShouldQuitError implements Error {
@@ -13,6 +11,11 @@ export function makeFumoApi(
     setting: (name: string, defaultValue?: string) => string,
     loadText: (filePath: string) => string
 ): Fumo.Api {
+
+    function stringEndsWith(str: string, searchString: string) {
+        return str.length >= searchString.length &&
+            str.lastIndexOf(searchString) === (str.length - searchString.length);
+    }
 
     function wrapCheckShouldQuit(on: (ctx: Fumo.ExecutionContext) => any) {
         return function(ctx: Fumo.ExecutionContext) {
@@ -387,7 +390,7 @@ export function makeFumoApi(
     condition.locationEndsWith = function(endsWith) {
         return condition(function(ctx) {
             return <any>ctx.driver.getCurrentUrl().then(function(url: string) {
-                var r = url.endsWith(endsWith) || url.endsWith(endsWith + '/');
+                var r = stringEndsWith(url, endsWith) || stringEndsWith(url, endsWith + '/');
                 if (!r) {
                     ctx.log('Location should end with ' + endsWith + ' but is ' + url);
                 }

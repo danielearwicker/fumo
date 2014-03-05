@@ -1,5 +1,4 @@
-﻿///<reference path='fumo.d.ts' />
-
+﻿// http://stackoverflow.com/questions/22196846/in-typescript-can-i-declare-that-the-current-scope-contains-all-the-members-of-a
 declare var flow: Fumo.FlowApi;
 declare var step: Fumo.StepApi;
 declare var condition: Fumo.ConditionApi;

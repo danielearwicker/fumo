@@ -1,14 +1,7 @@
-///<reference path='fumo.d.ts' />
-///<reference path='ecma-poly.d.ts' />
-///<reference path='node.d.ts' />
-///<reference path='knockout.d.ts' />
-
 import webdriver = require('selenium-webdriver');
 import path = require('path');
 import fs = require('fs');
 import api = require('./api');
-
-declare function printStackTrace(spec: { e: Error }): string[];
 
 var driver = ko.observable<webdriver.WebDriver>(null);
 
@@ -17,9 +10,7 @@ var appWindow: any = require('nw.gui').Window;
 var win = appWindow.get();
 win.on('close', function() {
     var self = this;
-    var forceClose = function() {
-        self.close(true);
-    };
+    var forceClose = () => self.close(true);
     if (driver()) {
         driver().quit().then(forceClose, forceClose);
     } else {

@@ -16,5 +16,8 @@
     },
     "dependencies": {
         "selenium-webdriver": "~2.40.0"
+    },
+    "devDependencies": {
+        "typescript": ">= 0.9.7"
     }
 }

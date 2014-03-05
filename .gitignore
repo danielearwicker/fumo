@@ -1,2 +1,7 @@
 node_modules/
-.idea/
+index.js
+api.js
+*.user
+*.suo
+bin/
+obj/

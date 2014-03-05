@@ -1,6 +1,4 @@
-﻿///<reference path='selenium-webdriver.d.ts' />
-
-declare module Fumo {
+﻿declare module Fumo {
 
     interface TypedWebDriverPromiseCallback<TIn, TOut> {
         (val: TIn): TOut;
@@ -129,6 +127,7 @@ declare module Fumo {
     }
 
     interface Api {
+        // These members must be duplicated in fumo-globals.d.ts
         flow: FlowApi;
         step: StepApi;
         condition: ConditionApi;
