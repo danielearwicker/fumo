@@ -6,7 +6,6 @@
         <script src="ecma-poly.js"></script>
         <script src="ko-bindings.js"></script>
         <script src="stacktrace.js"></script>
-        <script src="api.js"></script>
         <script src="index.js"></script>
         <style>
             body {
@@ -74,6 +73,9 @@
             .step.stepSelected {
                 border: 2px solid black;
             }
+            .step.searchHit {
+                background: #fbd850;
+            }
             .step img {
                 float: left;
             }
@@ -118,6 +120,10 @@
             }
             .setting input {
                 width: 97%
+            }
+            .dirtySettings {
+                margin-top: 8px;
+                font-weight: bold;
             }
 
             .interactive {
@@ -179,18 +185,27 @@
                 <button data-bind="click: last">Last</button>
                 <!-- /ko -->
                 <button data-bind="click: debug">Debug</button>
+                <span>Search: </span>
+                <input type="text" data-bind="value: searchText, valueUpdate: 'afterkeydown'">
+                <!-- ko if: searchResults().length > 1 -->
+                <button data-bind="click: function() { searchNextResult(-1); }">&lt;</button>
+                <button data-bind="click: function() { searchNextResult(1); }">&gt;</button>
+                <!-- /ko -->
+                <!-- ko if: searchText -->
+                <button data-bind="click: function() { searchText('') }">X</button>
+                <!-- /ko -->
             </div>
         </div>
         <div class="leftPane">
             <div class="stepList">
-                <div data-bind="text: loadErrorMessage"></div>
                 <div data-bind="foreach: steps">
                     <div>
                         <div class="step"
                              data-bind="css: {
                                             running: running,
                                             stepDisabled: !isEnabled(),
-                                            stepSelected: $parent.selectedStep() === $data
+                                            stepSelected: $parent.selectedStep() === $data,
+                                            searchHit: isSearchHit
                                         },
                                         style: { marginLeft: (4 + (depth * 24))+'px' },
                                         event: { click: select },
@@ -232,10 +247,13 @@
                 <div class="settings">
                     <div data-bind="foreach: settings">
                         <div class="setting">
-                            <div data-bind="text: name"></div>
-                            <div><input type="text" data-bind="value: value"></div>
+                            <div><span data-bind="text: name"></span> <button data-bind="click: clear">x</button></div>
+                            <div><input type="text" data-bind="value: value, valueUpdate: 'afterkeydown'"></div>
                         </div>
                     </div>
+                    <!-- ko if: dirtySettings -->
+                    <div class="dirtySettings">Reload the test to apply your changed settings</div>
+                    <!-- /ko -->
                 </div>
             </div>
             <div class="rightLowerPane">

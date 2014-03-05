@@ -1,35 +1,21 @@
-function ShouldQuitError() {
-    this.message = "Stopped by user";
+///<reference path='fumo.d.ts' />
+///<reference path='ecma-poly.d.ts' />
+import webdriver = require('selenium-webdriver');
+
+export class ShouldQuitError implements Error {
+    message = "Stopped by user";
+    name = "ShouldQuitError";
 }
 
 ShouldQuitError.prototype = new Error();
 
-function storeFumoSetting(name, value) {
-    name = 'testSetting_' + name;
-    if (value === null) {
-        localStorage.removeItem(name);
-    } else {
-        localStorage.setItem(name, value);
-    }
-}
+export function makeFumoApi(
+    setting: (name: string, defaultValue?: string) => string,
+    loadText: (filePath: string) => string
+): Fumo.Api {
 
-var makeFumoApi = function(settingValues) {
-
-    function setting(name, defaultValue) {
-        if (!(name in settingValues)) {
-            var val = localStorage.getItem('testSetting_' + name);
-            if (val !== null) {
-                defaultValue = val;
-            } else if (arguments.length === 1) {
-                defaultValue = '';
-            }
-            settingValues[name] = defaultValue;
-        }
-        return settingValues[name];
-    }
-
-    function wrapCheckShouldQuit(on) {
-        return function(ctx) {
+    function wrapCheckShouldQuit(on: (ctx: Fumo.ExecutionContext) => any) {
+        return function(ctx: Fumo.ExecutionContext) {
             if (ctx.shouldQuit) {
                 return webdriver.promise.rejected(new ShouldQuitError());
             }
@@ -37,17 +23,20 @@ var makeFumoApi = function(settingValues) {
         };
     }
 
-    function normaliseString(str) {
+    function normaliseString(str: string) {
         return str.toLowerCase().trim().replace(/\r/g, '');
     }
 
-    function until(ctx, promisedTruthy) {
+    function until<TInput, TResult>(
+        ctx: Fumo.ExecutionContext,
+        truthy: () => Fumo.TypedWebDriverPromise<TInput>
+    ) {
         var d = webdriver.promise.defer();
         var attempt = function() {
             if (ctx.shouldQuit) {
                 d.reject(new ShouldQuitError());
             } else {
-                promisedTruthy().then(function(result) {
+                truthy().then(function(result) {
                     if (result) {
                         d.fulfill(result);
                     } else {
@@ -62,10 +51,13 @@ var makeFumoApi = function(settingValues) {
             }
         };
         attempt();
-        return d;
+        return <any>d;
     }
 
-    function retry(ctx, promisedOperation) {
+    function retry<TResult>(
+        ctx: Fumo.ExecutionContext,
+        promisedOperation: (attempt: number) => Fumo.TypedWebDriverPromise<TResult>
+    ) {
         var d = webdriver.promise.defer();
         var tries = 0;
         var attempt = function() {
@@ -88,20 +80,24 @@ var makeFumoApi = function(settingValues) {
             }
         };
         attempt();
-        return d;
+        return <any>d;
     }
 
-    function forEach(ctx, arr, act) {
-        var d = webdriver.promise.defer(), i = 0, results = [];
+    function forEach<TInput, TResult>(
+        ctx: Fumo.ExecutionContext,
+        inputs: TInput[],
+        each: (item: TInput) => Fumo.TypedWebDriverPromise<TResult>
+    ) {
+        var d = webdriver.promise.defer(), i = 0, results: TResult[] = [];
         var step = function() {
             if (ctx.shouldQuit) {
                 d.reject(new ShouldQuitError());
             } else {
-                if (i >= arr.length) {
+                if (i >= inputs.length) {
                     d.fulfill(results);
                 } else {
                     var n = i++;
-                    act(arr[n]).then(function(result) {
+                    each(inputs[n]).then(function(result) {
                         results[n] = result;
                         step();
                     }, function(err) {
@@ -111,39 +107,41 @@ var makeFumoApi = function(settingValues) {
             }
         };
         step();
-        return d;
+        return <any>d;
     }
 
-    function makeByPath(byPath) {
+    function makeByPath(byPath: Fumo.ElementPathSegment[]) {
         if (!Array.isArray(byPath)) {
             byPath = [byPath];
         }
 
         return byPath.map(function(part) {
+            var result: any;
             if (typeof part === 'string') {
-                return webdriver.By.css(part);
+                result = webdriver.By.css(<string>part);
             }
             if (part.css) {
-                return webdriver.By.css(part.css);
+                result = webdriver.By.css(part.css);
             }
             if (part.xpath) {
-                return webdriver.By.xpath((part.xpath));
+                result = webdriver.By.xpath((part.xpath));
             }
+            return result;
         });
     }
 
-    function resolveByPath(ctx, byPath) {
+    function resolveByPath(ctx: Fumo.ExecutionContext, byPath: Fumo.ElementPathSegment[]) {
         var found = ctx.driver;
         return forEach(ctx, makeByPath(byPath), function(part) {
             if (!found) {
                 return null;
             }
-            return found.isElementPresent(part).then(function(present) {
+            return found.isElementPresent(part).then(function(present: boolean) {
                 if (!present) {
                     found = null;
                     return null;
                 }
-                return found.findElement(part).then(function(elem) {
+                return found.findElement(part).then(function(elem: webdriver.WebElement) {
                     found = elem;
                 });
             });
@@ -152,10 +150,10 @@ var makeFumoApi = function(settingValues) {
         });
     }
 
-    function awaitElement(ctx, byPath) {
+    function awaitElement(ctx: Fumo.ExecutionContext, byPath: any) : Fumo.TypedWebDriverPromise<webdriver.WebElement> {
         ctx.log('Finding ' + JSON.stringify(byPath));
         return retry(ctx, function() {
-            return resolveByPath(ctx, byPath).then(function(result) {
+            return resolveByPath(ctx, byPath).then(function(result: webdriver.WebElement) {
                 if (!result) {
                     ctx.log('Not found: ' + JSON.stringify(byPath));
                     throw new Error('Could not find: ' + JSON.stringify(byPath));
@@ -165,45 +163,45 @@ var makeFumoApi = function(settingValues) {
         });
     }
 
-    function extension_Delayed() {
-        var on = this;
-        return action(function(ctx) {
+    function extension_Delayed(): Fumo.Action {
+        var on = <Fumo.Action>this;
+        return action(function(ctx: Fumo.ExecutionContext) {
             ctx.log("Waiting a second");
-            return webdriver.promise.delayed(1000).then(function() {
+            return <any>webdriver.promise.delayed(1000).then(function() {
                 return on(ctx);
             });
         });
     }
 
-    function extension_Then(next) {
-        var on = this;
-        return action(function(ctx) {
+    function extension_Then(next: Fumo.Action): Fumo.Action {
+        var on = <Fumo.Action>this;
+        return action(function(ctx: Fumo.ExecutionContext) {
             return on(ctx).then(function() {
                 return next(ctx);
             });
         });
     }
 
-    function action(on) {
-        var ext = wrapCheckShouldQuit(on);
+    var action = <Fumo.ActionApi>function action(on) {
+        var ext = <Fumo.Action>wrapCheckShouldQuit(on);
         ext.delayed = extension_Delayed;
         ext.then = extension_Then;
         return ext;
     }
 
-    action.click = function(cssElem) {
+    action.click = function(cssElem: any) {
         return action(function(ctx) {
             ctx.log('Clicking ' + JSON.stringify(cssElem));
-            return awaitElement(ctx, cssElem).then(function(elem) {
+            return <any>awaitElement(ctx, cssElem).then(function(elem: webdriver.WebElement) {
                 return elem.click();
             });
         });
     };
 
-    action.inputText = function(cssElem, text, extraKeys) {
+    action.inputText = function(cssElem: any, text: string, extraKeys?: boolean) {
         return action(function(ctx) {
             ctx.log('Entering text "' + text + '" into ' + JSON.stringify(cssElem));
-            return awaitElement(ctx, cssElem).then(function(elem) {
+            return <any>awaitElement(ctx, cssElem).then(function(elem: webdriver.WebElement) {
                 var chain = elem.clear().then(function() {
                     return elem.sendKeys(text);
                 });
@@ -216,25 +214,25 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    action.sendKeys = function(keyArray) {
+    action.sendKeys = function(keyArray: any) {
         if (!Array.isArray(keyArray)) {
             keyArray = [keyArray];
         }
         return action(function(ctx) {
-            return forEach(ctx, keyArray, function(key) {
+            return forEach(ctx, keyArray, function(key: string) {
                 ctx.log('Pressing key "' + key + '"');
-                var keyStr = webdriver.Key[key.toUpperCase()];
+                var keyStr = (<any>webdriver.Key)[key.toUpperCase()];
                 if (keyStr === void 0) {
                     throw new Error('SendKeys: Invalid key name: ' + key);
                 }
-                return new webdriver.ActionSequence(ctx.driver)
+                return <any> new webdriver.ActionSequence(ctx.driver)
                     .sendKeys(keyStr)
                     .perform();
             });
         });
     };
 
-    action.navigate = function(url, fullScreen) {
+    action.navigate = function(url: string, fullScreen: boolean) {
         return action(function(ctx) {
             ctx.log('Navigating to ' + url);
             var chain = ctx.driver.get(url);
@@ -247,11 +245,12 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    action.withFrame = function(frameCss, on) {
+    action.withFrame = function(frameCss: any, on: Fumo.Action) {
         return action(function(ctx) {
             ctx.log("Switching to frame " + frameCss);
-            return awaitElement(ctx, frameCss).then(function(frameElem) {
-                return ctx.driver.switchTo().frame(frameElem).then(function() {
+            return awaitElement(ctx, frameCss).then(function(frameElem: webdriver.WebElement) {
+                // frameElement is not a number or a string!
+                return ctx.driver.switchTo().frame(<any>frameElem).then(function() {
                     return on(ctx).then(function(result) {
                         return ctx.driver.switchTo().defaultContent().then(function() {
                             return result;
@@ -266,22 +265,22 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    action.execute = function(js) {
+    action.execute = function(js: string) {
         return action(function(ctx) {
             ctx.log('Executing: ' + js);
-            return ctx.driver.executeScript(js);
+            return <any>ctx.driver.executeScript(js);
         });
     };
 
-    action.setProperty = function(css, prop, val) {
+    action.setProperty = function(css: string, prop: string, val: any) {
         return action.execute("$('" + css + "')." +
             prop + "(" + JSON.stringify(val) + ")");
     };
 
-    action.moveTo = function(cssElem) {
+    action.moveTo = function(cssElem: any) {
         return action(function(ctx) {
             ctx.log('Moving mouse to: ' + cssElem);
-            return awaitElement(ctx, cssElem).then(function(elem) {
+            return <any>awaitElement(ctx, cssElem).then(function(elem: webdriver.WebElement) {
                 return new webdriver.ActionSequence(ctx.driver)
                     .mouseMove(elem)
                     .perform();
@@ -289,11 +288,11 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    action.dragAndDrop = function(cssDrag, cssDrop, x, y) {
+    action.dragAndDrop = function(cssDrag: any, cssDrop: any, x: number, y: number) {
         return action(function(ctx) {
             ctx.log('Dragging ' + cssDrag + ' and dropping on ' + (cssDrop));
-            return awaitElement(ctx, cssDrag).then(function(elemDrag) {
-                return awaitElement(ctx, cssDrop).then(function(elemDrop) {
+            return <any>awaitElement(ctx, cssDrag).then(function(elemDrag: webdriver.WebElement) {
+                return awaitElement(ctx, cssDrop).then(function(elemDrop: webdriver.WebElement) {
                     return new webdriver.ActionSequence(ctx.driver)
                         .mouseDown(elemDrag)
                         .mouseMove(elemDrop, { x: x, y: y })
@@ -304,7 +303,7 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    function predicate(b) {
+    var predicate = <Fumo.PredicateApi>function(b) {
         return typeof b === 'function' ? b : function(ctx, a) {
             if (typeof a === 'string' && typeof b === 'string') {
                 ctx.log("Comparing strings " + JSON.stringify(a) + " and " + JSON.stringify(b));
@@ -325,7 +324,7 @@ var makeFumoApi = function(settingValues) {
     };
 
     function extension_Not() {
-        var on = this;
+        var on = <Fumo.Condition>this;
         return condition(function(ctx) {
             return on(ctx).then(function(val) {
                 ctx.log('Not: returning ' + !val + ' instead of ' + val);
@@ -334,16 +333,16 @@ var makeFumoApi = function(settingValues) {
         });
     }
 
-    function extension_And(other) {
-        var on = this;
-        return condition(function(ctx) {
-            return on(ctx).then(function(val1) {
+    function extension_And(other: Fumo.Condition) {
+        var on = <Fumo.Condition>this;
+        return condition(function(ctx: Fumo.ExecutionContext) {
+            return on(ctx).then(function(val1: boolean):any {
                 if (!val1) {
                     ctx.log('And: first is false, so returning false');
                     return val1;
                 }
                 ctx.log('And: first is true, so evaluating second');
-                return other(ctx).then(function(val2) {
+                return other(ctx).then(function(val2: boolean) {
                     if (!val2) {
                         ctx.log('And: second is false, so returning false');
                     } else {
@@ -355,26 +354,26 @@ var makeFumoApi = function(settingValues) {
         });
     }
 
-    function extension_Or(other) {
-        var on = this;
-        return condition(function(ctx) {
+    function extension_Or(other: Fumo.Condition) {
+        var on = <Fumo.Condition>this;
+        return condition(function(ctx: Fumo.ExecutionContext) {
             return on(ctx).then(function(val1) {
                 return val1 || other(ctx);
             });
         });
     }
 
-    function condition(on) {
-        var ext = wrapCheckShouldQuit(on);
+    var condition = <Fumo.ConditionApi>function (on) {
+        var ext = <Fumo.Condition>wrapCheckShouldQuit(on);
         ext.not = extension_Not;
         ext.and = extension_And;
         ext.or = extension_Or;
         return ext;
     }
 
-    condition.exists = function(byPath) {
+    condition.exists = function(byPath: any) {
         return condition(function(ctx) {
-            return resolveByPath(ctx, byPath).then(function(r) {
+            return resolveByPath(ctx, byPath).then(function(r: boolean) {
                 if (!r) {
                     ctx.log('Does not exist: ' + JSON.stringify(byPath));
                 } else {
@@ -387,7 +386,7 @@ var makeFumoApi = function(settingValues) {
 
     condition.locationEndsWith = function(endsWith) {
         return condition(function(ctx) {
-            return ctx.driver.getCurrentUrl().then(function(url) {
+            return <any>ctx.driver.getCurrentUrl().then(function(url: string) {
                 var r = url.endsWith(endsWith) || url.endsWith(endsWith + '/');
                 if (!r) {
                     ctx.log('Location should end with ' + endsWith + ' but is ' + url);
@@ -397,15 +396,15 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    condition.withFrame = function(cssFrame, test) {
+    condition.withFrame = function(cssFrame: any, test: Fumo.Condition) {
         return condition(function(ctx) {
-            return action.withFrame(cssFrame, test)(ctx);
+            return <any>action.withFrame(cssFrame, <any>test)(ctx);
         });
     };
 
     condition.countIs = function(cssElem, expected) {
         return condition(function(ctx) {
-            return ctx.driver.findElements(webdriver.By.css(cssElem)).then(function(actual) {
+            return <any>ctx.driver.findElements(webdriver.By.css(cssElem)).then(function(actual: webdriver.WebElement[]) {
                 var r = expected === actual.length;
                 if (!r) {
                     ctx.log('Count of ' + cssElem + ' should be ' + expected +
@@ -416,80 +415,80 @@ var makeFumoApi = function(settingValues) {
         });
     };
 
-    condition.evaluatesTo = function(js, pred) {
+    condition.evaluatesTo = function(js: string, pred: Fumo.Predicate) {
         pred = predicate(pred);
         return condition(function(ctx) {
             ctx.log('Evaluating: ' + js);
-            return ctx.driver.executeScript("return " + js).then(function(actual) {
+            return <any>ctx.driver.executeScript("return " + js).then(function(actual: any) {
                 return pred(ctx, actual);
             });
         });
     };
 
-    condition.propertyIs = function(css, prop, pred) {
+    condition.propertyIs = function(css: string, prop: string, pred: Fumo.Predicate) {
         return condition.evaluatesTo("window.$ && $(" +
             JSON.stringify(css) + ")." + prop + "()", pred);
     };
 
-    condition.valueIs = function(css, pred) {
+    condition.valueIs = function(css: string, pred: Fumo.Predicate) {
         return condition.propertyIs(css, "val", pred);
     };
 
-    condition.isChecked = function(css, expected) {
+    condition.isChecked = function(css: any, expected?: boolean) {
         if (expected !== false) {
             expected = true;
         }
         return condition(function(ctx) {
-            return awaitElement(ctx, css).then(function(elem) {
-                return elem.isSelected().then(function(v) {
+            return <any>awaitElement(ctx, css).then(function(elem: webdriver.WebElement) {
+                return elem.isSelected().then(function(v: boolean) {
                     return v == expected;
                 });
             });
         });
     };
 
-    condition.isEnabled = function(css, expected) {
+    condition.isEnabled = function(css: any, expected?: boolean) {
         if (expected !== false) {
             expected = true;
         }
         return condition(function(ctx) {
-            return awaitElement(ctx, css).then(function(elem) {
-                return elem.isEnabled().then(function(v) {
+            return <any>awaitElement(ctx, css).then(function(elem: webdriver.WebElement) {
+                return elem.isEnabled().then(function(v: boolean) {
                     return v == expected;
                 });
             });
         });
     };
 
-    condition.textIs = function(css, pred) {
+    condition.textIs = function(css: any, pred: Fumo.Predicate) {
         pred = predicate(pred);
         return condition(function(ctx) {
-            return awaitElement(ctx, css).then(function(elem) {
-                return elem.getText().then(function (text) {
+            return <any>awaitElement(ctx, css).then(function(elem: webdriver.WebElement) {
+                return elem.getText().then(function (text: string) {
                     return pred(ctx, text);
                 });
             });
         });
     };
 
-    condition.htmlIs = function(css, pred) {
+    condition.htmlIs = function(css: any, pred: Fumo.Predicate) {
         pred = predicate(pred);
         return condition(function(ctx) {
-            return awaitElement(ctx, css).then(function(elem) {
-                return elem.getInnerHtml().then(function (html) {
+            return <any>awaitElement(ctx, css).then(function(elem: webdriver.WebElement) {
+                return elem.getInnerHtml().then(function (html: string) {
                     return pred(ctx, html);
                 });
             });
         });
     };
 
-    var step = function(description, action, postCondition) {
+    var step = <Fumo.StepApi> function(description: string, action: Fumo.Action, postCondition: Fumo.Condition): Fumo.ExecutableStep {
         return {
             description: function() {
                 return description;
             },
-            execute: function(ctx) {
-                return retry(ctx, function(attemptNumber) {
+            execute: function(ctx: Fumo.ExecutionContext) {
+                return <any>retry(ctx, function(attemptNumber) {
                     ctx.log('Pre-condition attempt ' + attemptNumber);
                     return postCondition(ctx).then(function(result) {
                         if (result) {
@@ -536,7 +535,7 @@ var makeFumoApi = function(settingValues) {
         return step.setProperty(elemCss, "val", val);
     };
 
-    var sequence = function(description, steps) {
+    var sequence = function(description: string, steps: Fumo.Step[]): Fumo.ContainerStep {
         return {
             description: function() {
                 return description;
@@ -547,7 +546,7 @@ var makeFumoApi = function(settingValues) {
         };
     };
 
-    var unconditional = function(description, perform) {
+    var unconditional = function(description: string, perform: Fumo.Action): Fumo.ExecutableStep {
         return {
             execute: function(ctx) {
                 return perform(ctx);
@@ -558,7 +557,7 @@ var makeFumoApi = function(settingValues) {
         };
     };
 
-    var conditional = function(condition, step) {
+    var conditional = function(condition: Fumo.Condition, step: Fumo.ExecutableStep): Fumo.ExecutableStep {
         return {
             execute: function(ctx) {
                 return retry(ctx, function(attemptNumber) {
@@ -574,7 +573,7 @@ var makeFumoApi = function(settingValues) {
         };
     };
 
-    var check = function(description, condition) {
+    var check = function(description: string, condition: Fumo.Condition) : Fumo.ExecutableStep {
         return {
             description: function() {
                 return description;
@@ -607,6 +606,7 @@ var makeFumoApi = function(settingValues) {
             until: until,
             retry: retry,
             forEach: forEach
-        }
+        },
+        loadText: loadText
     };
 };

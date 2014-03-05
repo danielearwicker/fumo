@@ -1,3 +1,3 @@
-/**
- * Created by Daniel on 05/03/14.
- */
+interface String {
+    endsWith(suffix: string): string;
+}
