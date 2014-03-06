@@ -5,6 +5,7 @@ declare var condition: Fumo.ConditionApi;
 declare var predicate: Fumo.PredicateApi;
 declare var action: Fumo.ActionApi;
 declare function setting(name: string, defaultValue?: string): string;
+declare function sequence(description: string, ...steps: Fumo.Step[]): Fumo.ContainerStep;
 declare function sequence(description: string, steps: Fumo.Step[]): Fumo.ContainerStep;
 declare function unconditional(description: string, action: Fumo.Action): Fumo.ExecutableStep;
 declare function conditional(condition: Fumo.Condition, step: Fumo.ExecutableStep): Fumo.ExecutableStep;

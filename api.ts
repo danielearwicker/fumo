@@ -30,28 +30,35 @@ export function makeFumoApi(
         return str.toLowerCase().trim().replace(/\r/g, '');
     }
 
-    function until<TInput, TResult>(
+    function asPromise(ctx : Fumo.ExecutionContext, create: () => any): webdriver.promise.Promise {
+        if (ctx.shouldQuit) {
+            return webdriver.promise.rejected(new ShouldQuitError());
+        }
+        try {
+            return webdriver.promise.when(create());
+        } catch (x) {
+            return webdriver.promise.rejected(x);
+        }
+    }
+
+    function until<TResult>(
         ctx: Fumo.ExecutionContext,
-        truthy: () => Fumo.TypedWebDriverPromise<TInput>
+        truthy: () => Fumo.TypedWebDriverPromise<TResult>
     ) {
         var d = webdriver.promise.defer();
-        var attempt = function() {
-            if (ctx.shouldQuit) {
-                d.reject(new ShouldQuitError());
-            } else {
-                truthy().then(function(result) {
-                    if (result) {
-                        d.fulfill(result);
-                    } else {
-                        setTimeout(attempt, 500);
-                    }
-                }, function(x) {
-                    if (x instanceof ShouldQuitError) {
-                        d.reject(x);
-                    }
+        var attempt = function () {
+            asPromise(ctx, truthy).then(function(result) {
+                if (result) {
+                    d.fulfill(result);
+                } else {
                     setTimeout(attempt, 500);
-                });
-            }
+                }
+            }, function(x) {
+                if (x instanceof ShouldQuitError) {
+                    d.reject(x);
+                }
+                setTimeout(attempt, 500);
+            });
         };
         attempt();
         return <any>d;
@@ -64,23 +71,18 @@ export function makeFumoApi(
         var d = webdriver.promise.defer();
         var tries = 0;
         var attempt = function() {
-            if (ctx.shouldQuit) {
-                d.reject(new ShouldQuitError());
-            } else {
-                promisedOperation(tries + 1).then(function(result) {
-                    d.fulfill(result);
-                }, function(x) {
-                    if (x instanceof ShouldQuitError) {
-                        d.reject(x);
-                    }
-                    if (tries++ > 10) {
-                        d.reject(x);
-                    } else {
-                        ctx.log(x.toString());
-                        setTimeout(attempt, 500);
-                    }
-                });
-            }
+            asPromise(ctx, () => promisedOperation(tries + 1)).then(function (result) {
+                d.fulfill(result);
+            }, function(x) {
+                if (x instanceof ShouldQuitError) {
+                    d.reject(x);
+                } else if (tries++ > 10) {
+                    d.reject(x);
+                } else {
+                    ctx.log(x.toString());
+                    setTimeout(attempt, 500);
+                }
+            });
         };
         attempt();
         return <any>d;
@@ -93,20 +95,16 @@ export function makeFumoApi(
     ) {
         var d = webdriver.promise.defer(), i = 0, results: TResult[] = [];
         var step = function() {
-            if (ctx.shouldQuit) {
-                d.reject(new ShouldQuitError());
+            if (i >= inputs.length) {
+                d.fulfill(results);
             } else {
-                if (i >= inputs.length) {
-                    d.fulfill(results);
-                } else {
-                    var n = i++;
-                    each(inputs[n]).then(function(result) {
-                        results[n] = result;
-                        step();
-                    }, function(err) {
-                        d.reject(err);
-                    });
-                }
+                var n = i++;
+                asPromise(ctx, () => each(inputs[n])).then(function(result) {
+                    results[n] = result;
+                    step();
+                }, function(err) {
+                    d.reject(err);
+                });
             }
         };
         step();
@@ -538,13 +536,26 @@ export function makeFumoApi(
         return step.setProperty(elemCss, "val", val);
     };
 
-    var sequence = function(description: string, steps: Fumo.Step[]): Fumo.ContainerStep {
+    function flattenArray(input: any[], output: any[]) {
+        input.forEach(function (item) {
+            if (Array.isArray(item)) {
+                flattenArray(item, output);
+            } else {
+                output.push(item);
+            }
+        });
+    }
+
+    var sequence = function (description: string, ...steps: any[]): Fumo.ContainerStep {
+        var flattened: Fumo.Step[] = [];
+        flattenArray(steps, flattened);
+
         return {
             description: function() {
                 return description;
             },
             nestedSteps: function() {
-                return steps;
+                return flattened;
             }
         };
     };

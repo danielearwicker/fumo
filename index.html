@@ -33,6 +33,20 @@
                 width: 40%;
                 bottom: 0;
             }
+            .leftUpperPane {
+                position: absolute;
+                left: 0;
+                right: 0;
+                top: 0;
+                height: 70%;
+            }
+            .leftLowerPane {
+                position: absolute;
+                left: 0;
+                right: 0;
+                height: 30%;
+                bottom: 0;
+            }
             .rightUpperPane {
                 position: absolute;
                 left: 0;
@@ -47,32 +61,66 @@
                 height: 50%;
                 bottom: 0;
             }
-            .stepList {
+            .contextPath {
                 position: absolute;
                 left: 4px;
                 top: 0;
                 right: 2px;
+                height: 31px;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #d3cdbd;
+            }
+            .contextStep {
+                display: inline-block;
+                position: relative;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #fff5ee;
+                display: inline-block;
+                padding: 3px;
+                margin: 4px 0 4px 4px;
+            }
+
+            .stepList {
+                position: absolute;
+                left: 4px;
+                top: 36px;
+                right: 2px;
                 bottom: 4px;
                 overflow: auto;
+                padding: 4px;
                 border-radius: 4px;
                 border: 1px solid gray;
                 background: #ede6d4;
             }
+            .stepSpace {
+                position: relative;
+            }
+            .stepPosition {
+                position: absolute;
+                left: 0;
+                right: 0;
+                height: 64px;
+            }
             .step {
                 margin-top: 4px;
-                border: 1px solid gray;
+                border: 2px solid gray;
                 padding: 6px;
                 border-radius: 4px;
                 background: #fff5ee;
                 display: inline-block;
             }
-            .step.stepDisabled {
+            .stepDisabled {
                 background: #d3d3d3;
             }
             .step.stepSelected {
                 border: 2px solid black;
             }
-            .step.searchHit {
+            .contextStep.stepSelected {
+                border: 1px solid black;
+            }
+            .searchHit {
                 background: #fbd850;
             }
             .step img {
@@ -85,15 +133,11 @@
                 font-style: italic;
                 white-space:nowrap;
             }
+            .stepFirstLine {
+                white-space:nowrap;
+            }
             .stepStatus {
                 color: #2f4f4f;
-            }
-            .stepLogsContainer {
-                max-height: 200px;
-                overflow: auto;
-            }
-            .stepLogs {
-                font-size: 9pt;
             }
             .running {
                 background: #add8e6;
@@ -101,6 +145,21 @@
             a {
                 text-decoration: underline;
                 color: #00008b;
+            }
+
+            .logs {
+                position: absolute;
+                left: 4px;
+                top: 0;
+                right: 2px;
+                bottom: 4px;
+                overflow: auto;
+                border-radius: 4px;
+                border: 1px solid gray;
+                background: #193221;
+                color: greenyellow;
+                font-family: Courier;
+                font-size: 10pt;
             }
 
             .settings {
@@ -196,47 +255,68 @@
             </div>
         </div>
         <div class="leftPane">
-            <div class="stepList">
-                <div data-bind="foreach: steps">
-                    <div>
-                        <div class="step"
+            <div class="leftUpperPane">
+                <div class="contextPath">
+                    <div data-bind="foreach: contextSteps">
+                        <div class="contextStep"
                              data-bind="css: {
                                             running: running,
                                             stepDisabled: !isEnabled(),
                                             stepSelected: $parent.selectedStep() === $data,
                                             searchHit: isSearchHit
                                         },
-                                        style: { marginLeft: (4 + (depth * 24))+'px' },
-                                        event: { click: select },
-                                        initElement: initElement">
-                            <img data-bind="attr: { src: 'img/' + image() + '.png' }">
-                            <div>
-                                <label>
-                                    <input type="checkbox"
-                                           data-bind="checked: isEnabled,
-                                                      properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
-                                    <span class="stepId" data-bind="text: id"></span>
-                                    <span class="stepDescription" data-bind="text: description"></span>
-                                </label>
-                            </div>
-                            <div>
-                                <!-- ko if: showingLogs -->
-                                <div class="stepLogsContainer">
-                                    <div class="stepLogs" data-bind="foreach: logs">
-                                        <div data-bind="text: $data"></div>
-                                    </div>
-                                </div>
-                                <!-- /ko -->
-                                <!-- ko if: !showingLogs() -->
-                                <span class="stepStatus" data-bind="text: status"></span>
-                                <!-- /ko -->
-                                <!-- ko if: logs().length > 1 -->
-                                <a data-bind="click: function() { showingLogs(!showingLogs()) },
-                                              text: showingLogs() ? 'Less' : 'More'"></a>
-                                <!-- /ko -->
-                            </div>
-
+                                        event: { click: select }">
+                            <span class="stepId" data-bind="text: id"></span>
+                            <span class="stepDescription" data-bind="text: shortDescription, attr: { title: description }"></span>
                         </div>
+                    </div>
+                </div>
+                <div class="stepList" data-bind="scroll: { top: stepListScrollTop }, properties: { clientHeight: stepListClientHeight }">
+                    <div data-bind="style: { height: (steps().length * constantStepHeight) + 'px' }">
+                        <div class="stepSpace" data-bind="style: { top: (visibleSteps().first * constantStepHeight) + 'px' },
+                                        foreach: visibleSteps().steps">
+                            <div class="stepPosition" data-bind="style: { top: ($index() * $parent.constantStepHeight) + 'px' }">
+                                <div class="step"
+                                     data-bind="css: {
+                                        running: running,
+                                        stepDisabled: !isEnabled(),
+                                        stepSelected: $parent.selectedStep() === $data,
+                                        searchHit: isSearchHit
+                                     },
+                                        style: { marginLeft: (4 + (depth * 24)) + 'px' },
+                                        event: { click: select }">
+                                    <table>
+                                        <tr>
+                                            <td>
+                                                <img data-bind="attr: { src: 'img/' + image() + '.png' }">
+                                            </td>
+                                            <td>
+                                                <div class="stepFirstLine">
+                                                    <label>
+                                                        <input type="checkbox"
+                                                               data-bind="checked: isEnabled,
+                                                                          properties: { indeterminate: ko.unwrap(enabledState) === 0 }">
+                                                        <span class="stepId" data-bind="text: id"></span> 
+                                                        <span class="stepStatus" data-bind="text: status"></span>
+                                                    </label>
+                                                </div>
+                                                <div class="stepDescription" data-bind="text: description"></div>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                            
+                    </div>
+                    
+                </div>
+            </div>
+            <div class="leftLowerPane">
+                <div class="logs" data-bind="scroll: { top: logScrollTop },
+                                             properties: { clientHeight: logClientHeight, scrollHeight: logScrollHeight }">
+                    <div data-bind="foreach: selectedStep() ? selectedStep().logs : []">
+                        <div data-bind="text: $data"></div>
                     </div>
                 </div>
             </div>

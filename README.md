@@ -1,4 +1,5 @@
 fumo
 ====
 
-UI test runner, tests coded in C#, with bindings for Selenium
+node-webkit + selenium = declarative/interactive UI testing
+

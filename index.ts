@@ -5,8 +5,8 @@ import api = require('./api');
 
 var driver = ko.observable<webdriver.WebDriver>(null);
 
-var appWindow: any = require('nw.gui').Window;
-
+var nwGui: any = require('nw.gui');
+var appWindow: any = nwGui.Window;
 var win = appWindow.get();
 win.on('close', function() {
     var self = this;
@@ -65,6 +65,8 @@ module viewModel {
     export var selectedTestFile = ko.observable('');
     export var loadErrorMessage = ko.observable('To get started, load a test script.');
     export var steps = ko.observableArray<any>();
+    export var stepListScrollTop = ko.observable(0);
+    export var stepListClientHeight = ko.observable(0);
     export var selectedStep = ko.observable(null);
     export var settings = ko.observableArray<any>();
     export var interactiveCode = ko.observable('');
@@ -136,21 +138,15 @@ module viewModel {
         }
     });
 
-    var previouslyLoaded = localStorage.getItem('previouslyLoaded');
-    localStorage.setItem('previouslyLoaded', ''); // protect from crashing
-    if (previouslyLoaded) {
-        testFile(previouslyLoaded);
+    if (nwGui.App.argv.length > 0) {        
+        testFile(nwGui.App.argv);
+    } else {
+        var previouslyLoaded = localStorage.getItem('previouslyLoadedTest');
+        localStorage.setItem('previouslyLoadedTest', ''); // protect from crashing
+        if (previouslyLoaded) {
+            testFile(previouslyLoaded);
+        }
     }
-
-    export function reload() {
-        var path = testFile();
-        testFile(null);
-        testFile(path);
-    }
-
-    export var canReload = ko.computed(function() {
-        return testFile();
-    });
 
     export function enableAll() {
         var root = steps()[0];
@@ -199,15 +195,40 @@ module viewModel {
         });
     };
 
-    var addStep = function(step: Fumo.Step, depth: number, id?: string) {
+    export var logClientHeight = ko.observable(0);
+    export var logScrollHeight = ko.observable(0);
+    export var logScrollTop = ko.observable(0);
+        
+    export var constantStepHeight = 64;
+
+    export var contextSteps = ko.computed(() => {
+        var topStep = steps()[Math.floor(stepListScrollTop() / constantStepHeight)];
+        var ctx = [];
+        while (topStep && topStep.parent) {
+            ctx.unshift(topStep);
+            topStep = topStep.parent;
+        }
+        return ctx;
+    });
+
+    export var visibleSteps = ko.computed(function () {        
+        var all = steps(), scrollTop = stepListScrollTop();
+        var first = Math.floor(scrollTop / constantStepHeight);
+        var last = Math.ceil((scrollTop + stepListClientHeight()) / constantStepHeight);
+        return { first: first, steps: all.slice(first, last + 1) };        
+    }).extend({ throttle: 10 });
+
+    var addStep = function(step: Fumo.Step, parent: any, depth: number, id?: string) {
         if (!step || typeof step.description !== 'function') {
             return;
         }
 
         var stepModel: any = {
+            parent: parent,
             description: step.description(),
             id: id || 'Root',
             depth: depth,
+            index: steps.peek().length,
             showingLogs: ko.observable(false),
             logs: ko.observableArray(),
             status: ko.observable(''),
@@ -215,34 +236,64 @@ module viewModel {
             image: ko.observable('unknown')
         };
 
+        stepModel.shortDescription = stepModel.description;
+        if (stepModel.shortDescription.length > 40) {
+            stepModel.shortDescription = stepModel.shortDescription.substr(0, 19) + "..." +
+                stepModel.shortDescription.substr(stepModel.shortDescription.length - 19);
+        }
+
         stepModel.select = function() {
             selectedStep(stepModel);
+            stepModel.scrollIntoView();
             return true;
         };
 
         stepModel.running = ko.computed(function() {
             return stepModel.image() === 'running';
         });
-
-        var element: HTMLElement;
-        stepModel.initElement = function(initElement: HTMLElement) {
-            element = initElement;
+        
+        stepModel.hitTest = function (yPos: number): any[] {
+            if (yPos >= stepModel.top() && yPos <= stepModel.bottom()) {
+                var childHits: any[];
+                if (children().some(function (child) {
+                    childHits = child.hitTest(yPos);
+                    return childHits.length !== 0;
+                })) {
+                    return [stepModel].concat(childHits);
+                }
+                return [stepModel]
+            }
+            return [];
         };
 
-        stepModel.scrollIntoView = function() {
-            element.scrollIntoView(false);
+        // Better than browser's version which scrolls unnecessarily
+        stepModel.scrollIntoView = function () {            
+            var ourTop = stepModel.index * constantStepHeight,
+                ourBottom = ourTop + constantStepHeight;
+
+            if (ourBottom > stepListScrollTop() + stepListClientHeight()) {
+                stepListScrollTop(ourBottom - stepListClientHeight());
+            }
+            if (ourTop < stepListScrollTop()) {
+                stepListScrollTop(ourTop);
+            }
         };
 
+        stepModel.scrollToTop = function () {
+            stepListScrollTop(stepModel.index * constantStepHeight);
+        };
+        
         stepModel.log = function(msg: string) {
             stepModel.status(msg);
-            stepModel.logs.unshift(msg);
-            stepModel.scrollIntoView();
+            stepModel.logs.push(msg);
+            stepModel.select();
+            logScrollTop(Math.max(0, logScrollHeight() - logClientHeight()));
         };
+
+        var children = ko.observableArray<any>();
 
         if ('nestedSteps' in step) {
             stepModel.image('container');
-
-            var children = ko.observableArray<any>();
 
             stepModel.enabledState = ko.computed(function() {
 
@@ -271,7 +322,7 @@ module viewModel {
 
             (<Fumo.ContainerStep>step).nestedSteps().forEach(function(nestedStep, n) {
                 n++;
-                children.push(addStep(nestedStep, depth + 1, id ? (id + '.' + n) : '' + n));
+                children.push(addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : '' + n));
             });
 
         } else {
@@ -282,11 +333,21 @@ module viewModel {
             stepModel.execute = (<Fumo.ExecutableStep>step).execute;
             steps.push(stepModel);
         }
-
+        
         return stepModel;
     };
 
     var runningContext = ko.observable(null);
+
+    export function reload() {
+        var path = testFile();
+        testFile(null);
+        testFile(path);
+    }
+
+    export var canReload = ko.computed(function () {
+        return testFile() && !runningContext();
+    });
 
     var firstEnabledStep = ko.computed(function() {
         var first: any;
@@ -468,7 +529,7 @@ module viewModel {
 
         dirtySettings(false);
 
-        setTimeout(function() {
+        setTimeout(() => {
             // Remove any settings that the test never asked for
             settings().filter(function(settingModel: any) {
                 return !PersistentSettings.wasNameAccessed(settingModel.name);
@@ -503,8 +564,27 @@ module viewModel {
         }, 0);
 
         interactiveResult('');
+
+        var ctxSteps = contextSteps.peek(),
+            top = ctxSteps[ctxSteps.length - 1],
+            topId = top && top.id;
+
         steps.removeAll();
-        addStep(testRoot, 0);
+        addStep(testRoot, null, 0);
+
+        if (topId) {
+            var sameIdAsTop: any;
+            steps().some(function (step) {
+                if (topId.indexOf(step.id) === 0) {
+                    sameIdAsTop = step;
+                }
+                return sameIdAsTop && sameIdAsTop.id === topId;
+            });
+            if (sameIdAsTop) {
+                sameIdAsTop.scrollToTop();
+            }
+        }
+
         localStorage.setItem('previouslyLoaded', testFile());
     });
 

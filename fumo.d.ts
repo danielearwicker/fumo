@@ -121,7 +121,7 @@
     }
 
     interface FlowApi {
-        until<TInput, TResult>(ctx: ExecutionContext, truthy: () => TypedWebDriverPromise<TInput>): TypedWebDriverPromise<TResult>;
+        until<TResult>(ctx: ExecutionContext, truthy: () => TypedWebDriverPromise<TResult>): TypedWebDriverPromise<TResult>;
         retry<TResult>(ctx: ExecutionContext, attempt: (attempt: number) => TypedWebDriverPromise<TResult>): TypedWebDriverPromise<TResult>;
         forEach<TInput, TResult>(ctx: ExecutionContext, inputs: TInput[], each: (item: TInput) => TypedWebDriverPromise<TResult>): TypedWebDriverPromise<TResult[]>;
     }
@@ -134,6 +134,7 @@
         predicate: PredicateApi;
         action: ActionApi;
         setting(name: string, defaultValue?: string): string;
+        sequence(description: string, ...steps: Step[]): ContainerStep;
         sequence(description: string, steps: Step[]): ContainerStep;
         unconditional(description: string, action: Action): ExecutableStep;
         conditional(condition: Condition, step: ExecutableStep): ExecutableStep;
