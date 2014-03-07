@@ -577,8 +577,8 @@ export function makeFumoApi(
                 return retry(ctx, function(attemptNumber) {
                     ctx.log('Evaluating condition for conditional step, attempt: ' + attemptNumber);
                     return condition(ctx);
-                }).then(function() {
-                    return step.execute(ctx);
+                }).then(function (conditionResult: boolean) {
+                    return conditionResult ? <any>step.execute(ctx) : false;
                 });
             },
             description: function() {
