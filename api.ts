@@ -1,4 +1,6 @@
 import webdriver = require('selenium-webdriver');
+import fs = require("fs");
+import path = require("path");
 
 export class ShouldQuitError implements Error {
     message = "Stopped by user";
@@ -132,12 +134,12 @@ export function makeFumoApi(
     }
 
     function resolveByPath(ctx: Fumo.ExecutionContext, byPath: Fumo.ElementPathSegment[]) {
-        var found = ctx.driver;
+        var found: webdriver.WebElementContainer = ctx.driver;
         return forEach(ctx, makeByPath(byPath), function(part) {
             if (!found) {
                 return null;
             }
-            return found.isElementPresent(part).then(function(present: boolean) {
+            return <any>found.isElementPresent(part).then(function(present: boolean) {
                 if (!present) {
                     found = null;
                     return null;
@@ -242,14 +244,14 @@ export function makeFumoApi(
                     return ctx.driver.manage().window().maximize();
                 });
             }
-            return chain;
+            return <any>chain;
         });
     };
 
     action.withFrame = function(frameCss: any, on: Fumo.Action) {
         return action(function(ctx) {
             ctx.log("Switching to frame " + frameCss);
-            return awaitElement(ctx, frameCss).then(function(frameElem: webdriver.WebElement) {
+            return <any>awaitElement(ctx, frameCss).then(function(frameElem: webdriver.WebElement) {
                 // frameElement is not a number or a string!
                 return ctx.driver.switchTo().frame(<any>frameElem).then(function() {
                     return on(ctx).then(function(result) {
@@ -274,17 +276,30 @@ export function makeFumoApi(
     };
 
     action.setProperty = function(css: string, prop: string, val: any) {
-        return action.execute("$('" + css + "')." +
-            prop + "(" + JSON.stringify(val) + ")");
+        return action.execute("document.querySelector('" + css + "')." +
+            prop + " = " + JSON.stringify(val));
     };
 
-    action.moveTo = function(cssElem: any) {
+    function move(as: webdriver.ActionSequence, elem: webdriver.WebElement, location?: { x: number; y: number }) {
+        return location ? as.mouseMove(elem, location) : as.mouseMove(elem);
+    }
+
+    action.moveTo = function (cssElem: any, location?: { x: number; y: number }) {
         return action(function(ctx) {
             ctx.log('Moving mouse to: ' + cssElem);
-            return <any>awaitElement(ctx, cssElem).then(function(elem: webdriver.WebElement) {
-                return new webdriver.ActionSequence(ctx.driver)
-                    .mouseMove(elem)
-                    .perform();
+            return <any>awaitElement(ctx, cssElem).then(function (elem: webdriver.WebElement) {
+                return move(new webdriver.ActionSequence(ctx.driver), elem, location).perform();
+            });
+        });
+    };
+
+    action.contextClick = function (cssElem: any, location?: { x: number; y: number; }) {
+        return action(function (ctx) {
+            ctx.log('Context-clicking ' + cssElem);
+            return <any>awaitElement(ctx, cssElem).then(function (elem: webdriver.WebElement) {
+                return move(new webdriver.ActionSequence(ctx.driver), elem, location)
+                    .click(webdriver.Button.RIGHT)
+                    .perform();                
             });
         });
     };
@@ -427,12 +442,12 @@ export function makeFumoApi(
     };
 
     condition.propertyIs = function(css: string, prop: string, pred: Fumo.Predicate) {
-        return condition.evaluatesTo("window.$ && $(" +
-            JSON.stringify(css) + ")." + prop + "()", pred);
+        return condition.evaluatesTo("document.querySelector(" +
+            JSON.stringify(css) + ")." + prop, pred);
     };
 
     condition.valueIs = function(css: string, pred: Fumo.Predicate) {
-        return condition.propertyIs(css, "val", pred);
+        return condition.propertyIs(css, "value", pred);
     };
 
     condition.isChecked = function(css: any, expected?: boolean) {
@@ -533,7 +548,7 @@ export function makeFumoApi(
     };
 
     step.setValue = function(elemCss, val) {
-        return step.setProperty(elemCss, "val", val);
+        return step.setProperty(elemCss, "value", val);
     };
 
     function flattenArray(input: any[], output: any[]) {
@@ -605,6 +620,40 @@ export function makeFumoApi(
         };
     };
 
+    function ensureDirectoryExists(pathStr: string) {
+        try {
+            var s = fs.statSync(pathStr);
+            if (s) {
+                if (s.isDirectory()) {
+                    return;
+                }
+                throw new Error(pathStr + " exists but is not a directory");
+            }
+        } catch (x) {}
+
+        var parentDir = path.dirname(pathStr);
+        if (parentDir && parentDir !== pathStr) {
+            ensureDirectoryExists(parentDir);
+        }
+        fs.mkdirSync(pathStr);
+    }
+
+    var screenshot = function (saveToPath: string): Fumo.ExecutableStep {
+        return {
+            description: function () {
+                return "Screenshot: " + saveToPath;
+            },
+            icon: 'screenshot',
+            execute: function (ctx) {
+                ctx.log('Taking screenshot');
+                return <any>ctx.driver.takeScreenshot().then(function (base64Png) {
+                    ensureDirectoryExists(path.dirname(saveToPath));
+                    fs.writeFileSync(saveToPath, new Buffer(base64Png, "base64"));
+                });
+            }
+        };
+    };
+
     return {
         setting: setting,
         action: action,
@@ -615,6 +664,7 @@ export function makeFumoApi(
         sequence: sequence,
         unconditional: unconditional,
         conditional: conditional,
+        screenshot: screenshot,
         element: awaitElement,
         flow: {
             until: until,

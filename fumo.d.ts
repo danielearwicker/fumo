@@ -13,6 +13,7 @@
 
     interface Step {
         description(): string;
+        icon?: string
     }
 
     interface ContainerStep extends Step {
@@ -21,7 +22,7 @@
 
     interface ExecutionContext {
         log(message: string): void;
-        driver: any;
+        driver: webdriver.WebDriver;
         shouldQuit: boolean;
     }
 
@@ -47,6 +48,7 @@
         click(elemPath: ElementPathSegment[]): Action;
 
         inputText(cssElem: string, text: string, extraKeys?: boolean): Action;
+        inputText(elemPath: ElementPathSegment[], text: string, extraKeys?: boolean): Action;
 
         sendKeys(keys: string[]): Action;
         sendKeys(keys: string): Action;
@@ -54,13 +56,20 @@
         navigate(url: string, maximize: boolean): Action;
 
         withFrame(frameCss: string, on: Action): Action;
+        withFrame(elemPath: ElementPathSegment[], on: Action): Action;
 
         execute(js: string): Action;
 
         setProperty(css: string, prop: string, val: any): Action;
 
-        moveTo(css: string): Action;
+        moveTo(css: string, location?: { x: number; y: number }): Action;
+        moveTo(elemPath: ElementPathSegment[], location?: { x: number; y: number }): Action;
+        
+        contextClick(css: string, location?: { x: number; y: number; }): Action;
+        contextClick(elemPath: ElementPathSegment[], location?: { x: number; y: number; }): Action;
+
         dragAndDrop(cssDrag: string, cssDrop: string, x: number, y: number): Action;
+        dragAndDrop(elemPathDrag: ElementPathSegment[], elemDro: ElementPathSegment[], x: number, y: number): Action;
     }
 
     interface Predicate {
@@ -139,6 +148,7 @@
         unconditional(description: string, action: Action): ExecutableStep;
         conditional(condition: Condition, step: ExecutableStep): ExecutableStep;
         check(description: string, condition: Condition): ExecutableStep;
+        screenshot(name: string): ExecutableStep;
         element(ctx: ExecutionContext, css: string): TypedWebDriverPromise<webdriver.WebElement>;
         element(ctx: ExecutionContext, path: ElementPathSegment[]): TypedWebDriverPromise<webdriver.WebElement>;
         loadText(filePath: string): string;

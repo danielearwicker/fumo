@@ -233,7 +233,7 @@ module viewModel {
             logs: ko.observableArray(),
             status: ko.observable(''),
             isSearchHit: ko.observable(false),
-            image: ko.observable('unknown')
+            image: ko.observable(step.icon || 'unknown')
         };
 
         stepModel.shortDescription = stepModel.description;
