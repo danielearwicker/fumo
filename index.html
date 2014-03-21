@@ -232,6 +232,7 @@
                 <input type="file" data-bind="value: selectedTestFile">
             </div>
             <div>
+                <select data-bind="value: browser, options: ['chrome', 'ie']"></select>
                 <button data-bind="click: reload, enable: canReload">Reload</button>
                 <button data-bind="click: start, enable: canStart">Start</button>
                 <button data-bind="click: stop, enable: canStop">Stop</button>
@@ -307,9 +308,7 @@
                                 </div>
                             </div>
                         </div>
-                            
                     </div>
-                    
                 </div>
             </div>
             <div class="leftLowerPane">
@@ -318,6 +317,7 @@
                     <div data-bind="foreach: selectedStep() ? selectedStep().logs : []">
                         <div data-bind="text: $data"></div>
                     </div>
+                    <div>&nbsp;</div>
                 </div>
             </div>
         </div>

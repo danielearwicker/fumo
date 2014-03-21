@@ -1,22 +1,30 @@
-import webdriver = require('selenium-webdriver');
-import path = require('path');
-import fs = require('fs');
-import api = require('./api');
+import webdriver = require("selenium-webdriver");
+import path = require("path");
+import fs = require("fs");
+import api = require("./api");
+import child_process = require("child_process");
 
 var driver = ko.observable<webdriver.WebDriver>(null);
+
+var serviceProcess: child_process.ChildProcess;
 
 var nwGui: any = require('nw.gui');
 var appWindow: any = nwGui.Window;
 var win = appWindow.get();
-win.on('close', function() {
-    var self = this;
-    var forceClose = () => self.close(true);
+
+function cleanShutdown() {
+    var forceClose = () => win.close(true);
     if (driver()) {
+        if (serviceProcess) {
+            serviceProcess.kill();
+        }
         driver().quit().then(forceClose, forceClose);
     } else {
         forceClose();
     }
-});
+}
+
+win.on('close', cleanShutdown);
 
 module PersistentSettings {
 
@@ -60,21 +68,49 @@ module PersistentSettings {
     }
 }
 
+var autoRun = false,
+    autoQuit = false,
+    autoQuitOnError = false,
+    errorFile: string = null,
+    errorFileFlag = "/errorFile=";
+
+nwGui.App.argv.forEach(function (arg: string) {
+    if (arg[0] === "@") {
+        arg = arg.substr(1);
+        var eq = arg.indexOf('=');
+        if (eq !== -1) {
+            PersistentSettings.put(arg.substr(0, eq), arg.substr(eq + 1));
+        }
+    } else if (arg == "/run") {
+        autoRun = true;
+    } else if (arg == "/quit") {
+        autoQuit = true;
+    } else if (arg == "/quitOnError") {
+        autoQuitOnError = true;
+    } else if (arg.indexOf(errorFileFlag) === 0) {
+        errorFile = arg.substr(errorFileFlag.length);
+        try {
+            fs.unlinkSync(errorFile);
+        } catch (x) { }
+    }
+});
+
 module viewModel {
-    export var testFile = ko.observable('');
-    export var selectedTestFile = ko.observable('');
+    export var testFile = ko.observable("");
+    export var selectedTestFile = ko.observable("");
     export var loadErrorMessage = ko.observable('To get started, load a test script.');
     export var steps = ko.observableArray<any>();
     export var stepListScrollTop = ko.observable(0);
     export var stepListClientHeight = ko.observable(0);
     export var selectedStep = ko.observable(null);
     export var settings = ko.observableArray<any>();
-    export var interactiveCode = ko.observable('');
-    export var interactiveResult = ko.observable('');
+    export var interactiveCode = ko.observable("");
+    export var interactiveResult = ko.observable("");
     export var interactiveTrying = ko.observable(false);
     export var dirtySettings = ko.observable(false);
-    export var searchText = ko.observable('');
+    export var searchText = ko.observable("");
     export var searchResults = ko.observableArray<any>();
+    export var browser = ko.observable("chrome");
 
     var currentSearchResult = 0;
 
@@ -134,15 +170,15 @@ module viewModel {
     ko.computed(function() {
         if (selectedTestFile()) {
             testFile(selectedTestFile());
-            selectedTestFile('');
+            selectedTestFile("");
         }
     });
 
-    if (nwGui.App.argv.length > 0) {        
-        testFile(nwGui.App.argv);
+    if (nwGui.App.argv.length > 0) {
+        testFile(nwGui.App.argv[0]);
     } else {
         var previouslyLoaded = localStorage.getItem('previouslyLoadedTest');
-        localStorage.setItem('previouslyLoadedTest', ''); // protect from crashing
+        localStorage.setItem('previouslyLoadedTest', ""); // protect from crashing
         if (previouslyLoaded) {
             testFile(previouslyLoaded);
         }
@@ -231,7 +267,7 @@ module viewModel {
             index: steps.peek().length,
             showingLogs: ko.observable(false),
             logs: ko.observableArray(),
-            status: ko.observable(''),
+            status: ko.observable(""),
             isSearchHit: ko.observable(false),
             image: ko.observable(step.icon || 'unknown')
         };
@@ -287,7 +323,7 @@ module viewModel {
             stepModel.status(msg);
             stepModel.logs.push(msg);
             stepModel.select();
-            logScrollTop(Math.max(0, logScrollHeight() - logClientHeight()));
+            process.nextTick(() => logScrollTop(Math.max(0, logScrollHeight() - logClientHeight())));
         };
 
         var children = ko.observableArray<any>();
@@ -322,7 +358,7 @@ module viewModel {
 
             (<Fumo.ContainerStep>step).nestedSteps().forEach(function(nestedStep, n) {
                 n++;
-                children.push(addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : '' + n));
+                children.push(addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : "" + n));
             });
 
         } else {
@@ -368,6 +404,9 @@ module viewModel {
     var runOneStep = function() {
         if (!runningStep()) {
             runningContext(null);
+            if (autoQuit) {
+                cleanShutdown();
+            }
 
         } else {
 
@@ -410,6 +449,16 @@ module viewModel {
                 });
                 rs.image('fail');
                 runningContext(null);
+
+                if (errorFile) {
+                    try {
+                        fs.writeFileSync(errorFile, 'failed');
+                    } catch (x) { }
+                }
+
+                if (autoQuitOnError) {
+                    cleanShutdown();
+                }
             });
         }
     };
@@ -420,10 +469,24 @@ module viewModel {
 
     var getDriver = function() {
         if (!driver()) {
-            driver(
-                new webdriver.Builder().withCapabilities(
-                    webdriver.Capabilities.chrome()).build()
-            );
+
+            var builder: webdriver.AbstractBuilder = new webdriver.Builder();
+
+            if (browser() === "ie") {
+                if (!serviceProcess) {
+                    serviceProcess = child_process.execFile("IEDriverServer.exe", [], {}, () => {
+                        serviceProcess = null;
+                    });
+                }
+                var caps = webdriver.Capabilities.ie();
+                caps.set("ie.ensureCleanSession", true);
+                builder = builder.usingServer("http://localhost:5555")
+                                 .withCapabilities(caps);
+            } else {
+                builder = builder.withCapabilities(webdriver.Capabilities.chrome());
+            }
+
+            driver(builder.build());
         }
         return driver();
     };
@@ -461,7 +524,7 @@ module viewModel {
     var declareApi = function(api: Fumo.Api, paramName: string) {
         return Object.keys(api).map(function(member) {
             return 'var ' + member + ' = ' + paramName + '.' + member + ';\n';
-        }).join('');
+        }).join("");
     };
 
     ko.computed(function() {
@@ -563,7 +626,7 @@ module viewModel {
             });
         }, 0);
 
-        interactiveResult('');
+        interactiveResult("");
 
         var ctxSteps = contextSteps.peek(),
             top = ctxSteps[ctxSteps.length - 1],
@@ -586,6 +649,11 @@ module viewModel {
         }
 
         localStorage.setItem('previouslyLoaded', testFile());
+
+        if (autoRun) {
+            autoRun = false;
+            setTimeout(start, 3000);
+        }
     });
 
     export function interactiveKeyDown(m: any, ev: KeyboardEvent) {
@@ -601,7 +669,7 @@ module viewModel {
         if (!code) {
             return;
         }
-        interactiveResult('');
+        interactiveResult("");
         interactiveTrying(true);
 
         var log = function(str: string) {

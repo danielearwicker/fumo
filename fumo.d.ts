@@ -148,7 +148,8 @@
         unconditional(description: string, action: Action): ExecutableStep;
         conditional(condition: Condition, step: ExecutableStep): ExecutableStep;
         check(description: string, condition: Condition): ExecutableStep;
-        screenshot(name: string): ExecutableStep;
+        screenshot(saveToPath: string): ExecutableStep;
+        note(js: string, saveToPath: string): ExecutableStep;
         element(ctx: ExecutionContext, css: string): TypedWebDriverPromise<webdriver.WebElement>;
         element(ctx: ExecutionContext, path: ElementPathSegment[]): TypedWebDriverPromise<webdriver.WebElement>;
         loadText(filePath: string): string;
