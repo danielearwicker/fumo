@@ -193,7 +193,8 @@ export function makeFumoApi(
         }
         return action(ctx => forEach(ctx, keyArray, (key: string) => {
             ctx.log('Pressing key "' + key + '"');
-            var keyStr = (<any>webdriver.Key)[key.toUpperCase()];
+
+            var keyStr = key.length === 1 ? key : (<any>webdriver.Key)[key.toUpperCase()];
             if (keyStr === void 0) {
                 throw new Error('SendKeys: Invalid key name: ' + key);
             }
