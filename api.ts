@@ -429,7 +429,7 @@ export function makeFumoApi(
                 ctx.log('Action attempt ' + attemptNumber);
                 return action(ctx).thenFinally(x => {
                     if (x instanceof ShouldQuitError) {
-                        throw x;
+                        return webdriver.promise.rejected(x);
                     }
                     return retry(ctx, attemptNumber => {
                         ctx.log('Post-condition attempt ' + attemptNumber);

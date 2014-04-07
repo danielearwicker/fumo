@@ -442,7 +442,7 @@ module viewModel {
                 rs.isEnabled(false);
                 runOneStep();
 
-            }, function(err: Error) {
+            }).then(null, function(err: Error) {
                 rs.log(err.toString());
                 printStackTrace({ e: err }).forEach(function(frame) {
                     rs.log('- ' + frame);
