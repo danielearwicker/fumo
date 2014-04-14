@@ -259,6 +259,11 @@ module viewModel {
             return;
         }
 
+        // Sequences with no steps in them - ignore!
+        if (('nestedSteps' in step) && ((<Fumo.ContainerStep>step).nestedSteps().length === 0)) {
+            return;
+        }
+
         var stepModel: any = {
             parent: parent,
             description: step.description(),
@@ -358,7 +363,10 @@ module viewModel {
 
             (<Fumo.ContainerStep>step).nestedSteps().forEach(function(nestedStep, n) {
                 n++;
-                children.push(addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : "" + n));
+                var childStep = addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : "" + n);
+                if (childStep) {
+                    children.push(childStep);
+                }
             });
 
         } else {
