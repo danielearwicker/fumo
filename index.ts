@@ -8,7 +8,7 @@ var driver = ko.observable<webdriver.WebDriver>(null);
 
 var serviceProcess: child_process.ChildProcess;
 
-var nwGui: any = require('nw.gui');
+var nwGui: any = require("nw.gui");
 var appWindow: any = nwGui.Window;
 var win = appWindow.get();
 
@@ -24,12 +24,12 @@ function cleanShutdown() {
     }
 }
 
-win.on('close', cleanShutdown);
+win.on("close", cleanShutdown);
 
 module PersistentSettings {
 
     function qualify(name: string) {
-        return 'testSetting_' + name;
+        return "testSetting_" + name;
     }
 
     var accessedNames: { [name: string]: boolean } = {};
@@ -95,11 +95,41 @@ nwGui.App.argv.forEach(function (arg: string) {
     }
 });
 
+interface IStepModel {
+    parent: IStepModel;
+    description: string;
+    id: string;
+    depth: number;
+    indexExpanded: number;
+    indexAll: number;
+    showingLogs: KnockoutObservable<boolean>;
+    logs: KnockoutObservableArray<string>;
+    status: KnockoutObservable<string>;
+    isSearchHit: KnockoutObservable<boolean>;
+    image: KnockoutObservable<string>;
+    expanded: KnockoutObservable<boolean>;
+    expandable: boolean;
+    recursiveExpansion: (x: boolean) => void;
+    shortDescription: string;
+    select: () => void;
+
+    running: KnockoutComputed<boolean>;
+   
+    scrollIntoView: () => void;
+    scrollToTop: () => void;
+    log: (msg: string) => void;
+
+    isEnabled: KnockoutObservable<boolean>;
+    enabledState: KnockoutObservable<number>;
+    
+    execute: (ctx: Fumo.ExecutionContext) => Fumo.TypedWebDriverPromise<void>
+};
+
 module viewModel {
     export var testFile = ko.observable("");
     export var selectedTestFile = ko.observable("");
-    export var loadErrorMessage = ko.observable('To get started, load a test script.');
-    export var steps = ko.observableArray<any>();
+    export var loadErrorMessage = ko.observable("To get started, load a test script.");
+    export var steps = ko.observableArray<IStepModel>();
     export var stepListScrollTop = ko.observable(0);
     export var stepListClientHeight = ko.observable(0);
     export var selectedStep = ko.observable(null);
@@ -109,8 +139,10 @@ module viewModel {
     export var interactiveTrying = ko.observable(false);
     export var dirtySettings = ko.observable(false);
     export var searchText = ko.observable("");
-    export var searchResults = ko.observableArray<any>();
+    export var searchResults = ko.observableArray<IStepModel>();
     export var browser = ko.observable("chrome");
+    export var progress = ko.observable(0);
+    export var eta = ko.observable("");
 
     var currentSearchResult = 0;
 
@@ -177,8 +209,8 @@ module viewModel {
     if (nwGui.App.argv.length > 0) {
         testFile(nwGui.App.argv[0]);
     } else {
-        var previouslyLoaded = localStorage.getItem('previouslyLoadedTest');
-        localStorage.setItem('previouslyLoadedTest', ""); // protect from crashing
+        var previouslyLoaded = localStorage.getItem("previouslyLoadedTest");
+        localStorage.setItem("previouslyLoadedTest", ""); // protect from crashing
         if (previouslyLoaded) {
             testFile(previouslyLoaded);
         }
@@ -209,7 +241,7 @@ module viewModel {
     });
 
     export function first() {
-        steps().some(function(step: any) {
+        steps().some(step => {
             if (step === selectedStep()) {
                 return true;
             }
@@ -247,69 +279,94 @@ module viewModel {
         return ctx;
     });
 
-    export var visibleSteps = ko.computed(function () {        
-        var all = steps(), scrollTop = stepListScrollTop();
+    export var expandedSteps = ko.computed(() => {
+        var result: IStepModel[] = [];
+        var inContraction = false;
+        var depth = 0;
+
+        steps().forEach(step => {
+            if (inContraction) {
+                if (step.depth <= depth) {
+                    inContraction = false;
+                }
+            }
+            if (!inContraction) {
+                step.indexExpanded = result.length;
+                result.push(step);
+                if (!step.expanded()) {
+                    inContraction = true;
+                    depth = step.depth;
+                }
+            }
+        });
+
+        return result;
+    });
+
+    export var visibleSteps = ko.computed(() => {
+        var all = expandedSteps(), scrollTop = stepListScrollTop();
         var first = Math.floor(scrollTop / constantStepHeight);
         var last = Math.ceil((scrollTop + stepListClientHeight()) / constantStepHeight);
-        return { first: first, steps: all.slice(first, last + 1) };        
+        return { first: first, steps: all.slice(first, last + 1) };
     }).extend({ throttle: 10 });
 
-    var addStep = function(step: Fumo.Step, parent: any, depth: number, id?: string) {
+    var addStep = function(step: Fumo.Step, parent: IStepModel, depth: number, id?: string) {
         if (!step || typeof step.description !== 'function') {
             return;
         }
 
+        var container = ("nestedSteps" in step) && <Fumo.ContainerStep>step;
+
         // Sequences with no steps in them - ignore!
-        if (('nestedSteps' in step) && ((<Fumo.ContainerStep>step).nestedSteps().length === 0)) {
+        if (container && container.nestedSteps().length === 0) {
             return;
         }
 
-        var stepModel: any = {
+        var expanded = ko.observable(false);
+
+        var stepModel: IStepModel = {
             parent: parent,
             description: step.description(),
-            id: id || 'Root',
+            id: id || "Root",
             depth: depth,
-            index: steps.peek().length,
+            indexAll: steps().length,
+            indexExpanded: 0,
             showingLogs: ko.observable(false),
-            logs: ko.observableArray(),
+            logs: ko.observableArray<string>(),
             status: ko.observable(""),
             isSearchHit: ko.observable(false),
-            image: ko.observable(step.icon || 'unknown')
+            image: ko.observable(step.icon || "unknown"),
+            expanded: expanded,
+            expandable: !!container,
+            recursiveExpansion: null,
+            shortDescription: step.description(),
+            select: function () {
+                selectedStep(stepModel);
+                stepModel.scrollIntoView();
+                return true;
+            },
+            running: null,
+            scrollIntoView: null,
+            scrollToTop: null,
+            log: null,
+            isEnabled: null,
+            enabledState: null,
+            execute: null
         };
 
-        stepModel.shortDescription = stepModel.description;
         if (stepModel.shortDescription.length > 40) {
             stepModel.shortDescription = stepModel.shortDescription.substr(0, 19) + "..." +
                 stepModel.shortDescription.substr(stepModel.shortDescription.length - 19);
         }
 
-        stepModel.select = function() {
-            selectedStep(stepModel);
-            stepModel.scrollIntoView();
-            return true;
-        };
-
         stepModel.running = ko.computed(function() {
-            return stepModel.image() === 'running';
+            return stepModel.image() === "running";
         });
         
-        stepModel.hitTest = function (yPos: number): any[] {
-            if (yPos >= stepModel.top() && yPos <= stepModel.bottom()) {
-                var childHits: any[];
-                if (children().some(function (child) {
-                    childHits = child.hitTest(yPos);
-                    return childHits.length !== 0;
-                })) {
-                    return [stepModel].concat(childHits);
-                }
-                return [stepModel]
-            }
-            return [];
-        };
-
         // Better than browser's version which scrolls unnecessarily
-        stepModel.scrollIntoView = function () {            
-            var ourTop = stepModel.index * constantStepHeight,
+        stepModel.scrollIntoView = function () {
+            expandTo(stepModel);
+            var ourTop = stepModel.indexExpanded * constantStepHeight,
                 ourBottom = ourTop + constantStepHeight;
 
             if (ourBottom > stepListScrollTop() + stepListClientHeight()) {
@@ -321,7 +378,8 @@ module viewModel {
         };
 
         stepModel.scrollToTop = function () {
-            stepListScrollTop(stepModel.index * constantStepHeight);
+            expandTo(stepModel);
+            stepListScrollTop(stepModel.indexExpanded * constantStepHeight);
         };
         
         stepModel.log = function(msg: string) {
@@ -331,39 +389,35 @@ module viewModel {
             process.nextTick(() => logScrollTop(Math.max(0, logScrollHeight() - logClientHeight())));
         };
 
-        var children = ko.observableArray<any>();
+        var children = ko.observableArray<IStepModel>();
 
-        if ('nestedSteps' in step) {
-            stepModel.image('container');
+        if (container) {
+            stepModel.image("container");
 
-            stepModel.enabledState = ko.computed(function() {
+            stepModel.recursiveExpansion = x => {
+                expanded(x);
+                children().forEach(c => c.recursiveExpansion(x));
+            };
 
+            stepModel.enabledState = ko.computed(() => {
                 var c = children();
                 if (c.length === 0) {
-                    return false;
+                    return 0;
                 }
                 var f = c[0].enabledState();
-                return c.slice(1).some(function(o) {
-                    return o.enabledState() !== f;
-                }) ? 0 : f;
+                return c.slice(1).some(o => o.enabledState() !== f) ? 0 : f;
             });
 
-            stepModel.isEnabled = ko.computed({
-                read: function() {
-                    return stepModel.enabledState() != -1;
-                },
-                write: function(val) {
-                    children().forEach(function(c) {
-                        c.isEnabled(val);
-                    });
-                }
+            stepModel.isEnabled = ko.computed<boolean>({
+                read: () => stepModel.enabledState() != -1,
+                write: val => children().forEach(c => c.isEnabled(val))                
             });
 
             steps.push(stepModel);
 
-            (<Fumo.ContainerStep>step).nestedSteps().forEach(function(nestedStep, n) {
+            container.nestedSteps().forEach(function(nestedStep, n) {
                 n++;
-                var childStep = addStep(nestedStep, stepModel, depth + 1, id ? (id + '.' + n) : "" + n);
+                var childStep = addStep(nestedStep, stepModel, depth + 1, id ? (id + "." + n) : "" + n);
                 if (childStep) {
                     children.push(childStep);
                 }
@@ -371,10 +425,9 @@ module viewModel {
 
         } else {
             stepModel.isEnabled = ko.observable(true);
-            stepModel.enabledState = ko.computed(function() {
-                return stepModel.isEnabled() ? 1 : -1;
-            });
+            stepModel.enabledState = ko.computed(() => stepModel.isEnabled() ? 1 : -1);
             stepModel.execute = (<Fumo.ExecutableStep>step).execute;
+            stepModel.recursiveExpansion = () => { };
             steps.push(stepModel);
         }
         
@@ -393,15 +446,23 @@ module viewModel {
         return testFile() && !runningContext();
     });
 
+    function expandTo(step: IStepModel) {
+        for (var p = step && step.parent; p; p = p.parent) {
+            p.expanded(true);
+        }
+    }
+
     var firstEnabledStep = ko.computed(function() {
-        var first: any;
-        steps().some(function(s: any) {
+        var first: IStepModel;
+        steps().some(s => {
             if (s.execute && s.isEnabled()) {
                 first = s;
                 return true;
             }
             return false;
         });
+
+        expandTo(first);
         return first;
     });
 
@@ -412,6 +473,8 @@ module viewModel {
     var runOneStep = function() {
         if (!runningStep()) {
             runningContext(null);
+            progress(0);
+            eta("");
             if (autoQuit) {
                 cleanShutdown();
             }
@@ -422,6 +485,22 @@ module viewModel {
             rs.log('Started');
             rs.image('running');
             rs.showingLogs(true);
+
+            var fractionCompleted = stepsCompleted / stepsToRun;
+            progress(Math.ceil(10000 * fractionCompleted) / 100);
+
+            var elapsed = new Date().getTime() - timeStarted;
+
+            if (stepsCompleted) {
+                var timePerStep = elapsed / stepsCompleted;
+                var stepsRemaining = stepsToRun - stepsCompleted;
+                var secondsRemaining = Math.floor((stepsRemaining * timePerStep) / 1000);
+                var minutesRemaining = Math.floor(secondsRemaining / 60);
+                var timeAsText = minutesRemaining > 1 ?
+                    (minutesRemaining + " minutes") :
+                    (secondsRemaining + " seconds");
+                eta(stepsCompleted + "/" + stepsToRun + " - " + timeAsText + " remaining");
+            }
 
             var rc : Fumo.ExecutionContext = {
                 driver: getDriver(),
@@ -448,6 +527,7 @@ module viewModel {
                 rs.image('pass');
                 rs.showingLogs(false);
                 rs.isEnabled(false);
+                stepsCompleted++;
                 runOneStep();
 
             }).then(null, function(err: Error) {
@@ -456,6 +536,8 @@ module viewModel {
                     rs.log('- ' + frame);
                 });
                 rs.image('fail');
+                progress(0);
+                eta("");
                 runningContext(null);
 
                 if (errorFile) {
@@ -499,10 +581,15 @@ module viewModel {
         return driver();
     };
 
+    var stepsToRun = 0, stepsCompleted = 0, timeStarted = new Date().getTime();
+
     export function start() {
         if (runningContext()) {
             return;
         }
+
+        stepsToRun = steps().filter(s => s.execute && s.isEnabled()).length;
+        stepsCompleted = 0;
 
         runOneStep();
     }
@@ -644,7 +731,7 @@ module viewModel {
         addStep(testRoot, null, 0);
 
         if (topId) {
-            var sameIdAsTop: any;
+            var sameIdAsTop: IStepModel;
             steps().some(function (step) {
                 if (topId.indexOf(step.id) === 0) {
                     sameIdAsTop = step;
