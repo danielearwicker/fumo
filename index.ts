@@ -245,7 +245,7 @@ module viewModel {
             if (step === selectedStep()) {
                 return true;
             }
-            if ('execute' in step) {
+            if (step.execute) {
                 step.isEnabled(false);
             }
             return false;
