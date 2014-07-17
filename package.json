@@ -15,7 +15,7 @@
         "min_height": 500
     },
     "dependencies": {
-        "selenium-webdriver": "~2.40.0"
+        "selenium-webdriver": ">= 2.40.0"
     },
     "devDependencies": {
         "typescript": ">= 1.0.0"

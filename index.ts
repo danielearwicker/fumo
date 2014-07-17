@@ -177,9 +177,7 @@ module viewModel {
             currentSearchResult = 0;
 
             if (!st) {
-                steps().forEach(function(step) {
-                    step.isSearchHit(false);
-                });
+                steps().forEach(step => step.isSearchHit(false));
                 return;
             }
             st = st.toLowerCase();
@@ -269,16 +267,6 @@ module viewModel {
         
     export var constantStepHeight = 64;
 
-    export var contextSteps = ko.computed(() => {
-        var topStep = steps()[Math.floor(stepListScrollTop() / constantStepHeight)];
-        var ctx = [];
-        while (topStep && topStep.parent) {
-            ctx.unshift(topStep);
-            topStep = topStep.parent;
-        }
-        return ctx;
-    });
-
     export var expandedSteps = ko.computed(() => {
         var result: IStepModel[] = [];
         var inContraction = false;
@@ -303,6 +291,16 @@ module viewModel {
         return result;
     });
 
+    export var contextSteps = ko.computed(() => {
+        var topStep = expandedSteps()[Math.floor(stepListScrollTop() / constantStepHeight)];
+        var ctx = [];
+        while (topStep && topStep.parent) {
+            ctx.unshift(topStep);
+            topStep = topStep.parent;
+        }
+        return ctx;
+    });
+
     export var visibleSteps = ko.computed(() => {
         var all = expandedSteps(), scrollTop = stepListScrollTop();
         var first = Math.floor(scrollTop / constantStepHeight);
@@ -312,14 +310,14 @@ module viewModel {
 
     var addStep = function(step: Fumo.Step, parent: IStepModel, depth: number, id?: string) {
         if (!step || typeof step.description !== 'function') {
-            return;
+            return null;
         }
 
         var container = ("nestedSteps" in step) && <Fumo.ContainerStep>step;
 
         // Sequences with no steps in them - ignore!
         if (container && container.nestedSteps().length === 0) {
-            return;
+            return null;
         }
 
         var expanded = ko.observable(false);
@@ -340,7 +338,7 @@ module viewModel {
             expandable: !!container,
             recursiveExpansion: null,
             shortDescription: step.description(),
-            select: function () {
+            select: () => {
                 selectedStep(stepModel);
                 stepModel.scrollIntoView();
                 return true;
@@ -359,9 +357,7 @@ module viewModel {
                 stepModel.shortDescription.substr(stepModel.shortDescription.length - 19);
         }
 
-        stepModel.running = ko.computed(function() {
-            return stepModel.image() === "running";
-        });
+        stepModel.running = ko.computed(() => stepModel.image() === "running");
         
         // Better than browser's version which scrolls unnecessarily
         stepModel.scrollIntoView = function () {
@@ -377,12 +373,12 @@ module viewModel {
             }
         };
 
-        stepModel.scrollToTop = function () {
+        stepModel.scrollToTop = () => {
             expandTo(stepModel);
             stepListScrollTop(stepModel.indexExpanded * constantStepHeight);
         };
         
-        stepModel.log = function(msg: string) {
+        stepModel.log = (msg: string) => {
             stepModel.status(msg);
             stepModel.logs.push(msg);
             stepModel.select();
@@ -464,14 +460,10 @@ module viewModel {
 
         expandTo(first);
         return first;
-    });
-
-    var runningStep = function() {
-        return firstEnabledStep();
-    };
-
+    }).extend({ throttle: 100 });
+    
     var runOneStep = function() {
-        if (!runningStep()) {
+        if (!firstEnabledStep()) {
             runningContext(null);
             progress(0);
             eta("");
@@ -481,7 +473,7 @@ module viewModel {
 
         } else {
 
-            var rs = runningStep();
+            var rs = firstEnabledStep();
             rs.log('Started');
             rs.image('running');
             rs.showingLogs(true);
