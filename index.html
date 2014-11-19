@@ -328,6 +328,7 @@
             <div class="leftLowerPane">
                 <div class="logs" data-bind="scroll: { top: logScrollTop },
                                              properties: { clientHeight: logClientHeight, scrollHeight: logScrollHeight }">
+                    <div data-bind="text: interactiveResult"></div>
                     <div data-bind="foreach: selectedStep() ? selectedStep().logs : []">
                         <div data-bind="text: $data"></div>
                     </div>

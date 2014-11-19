@@ -1,3 +1,3 @@
 . build-common.sh
-cp ../fumo.nw ../../TFS/trunk/UiTests/package
-cp ../fumo.d.ts ../../TFS/trunk/UiTests/P360Test/
+cp ../fumo.nw ../../trunk/UiTests/package
+cp ../fumo.d.ts ../../trunk/UiTests/P360Test/

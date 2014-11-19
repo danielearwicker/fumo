@@ -65,6 +65,10 @@
         moveTo(css: string, location?: { x: number; y: number }): Action;
         moveTo(elemPath: ElementPathSegment[], location?: { x: number; y: number }): Action;
         
+        mouseDown(right?: boolean): Action;
+        mouseUp(right?: boolean): Action;
+        doubleClick(right?: boolean): Action;
+        
         contextClick(css: string, location?: { x: number; y: number; }): Action;
         contextClick(elemPath: ElementPathSegment[], location?: { x: number; y: number; }): Action;
 
@@ -118,6 +122,8 @@
 
         htmlIs(css: string, value: any): Condition;
         htmlIs(css: string, pred: Predicate): Condition;
+
+        compareImage(css: string, filePaths: string[], expectedIndex: number): Condition
     }
 
     interface StepApi {

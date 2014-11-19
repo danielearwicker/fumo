@@ -74,7 +74,7 @@ var autoRun = false,
     errorFile: string = null,
     errorFileFlag = "/errorFile=";
 
-nwGui.App.argv.forEach(function (arg: string) {
+nwGui.App.argv.forEach((arg: string) => {
     if (arg[0] === "@") {
         arg = arg.substr(1);
         var eq = arg.indexOf('=');
@@ -125,7 +125,7 @@ interface IStepModel {
     execute: (ctx: Fumo.ExecutionContext) => Fumo.TypedWebDriverPromise<void>
 };
 
-module viewModel {
+module ViewModel {
     export var testFile = ko.observable("");
     export var selectedTestFile = ko.observable("");
     export var loadErrorMessage = ko.observable("To get started, load a test script.");
@@ -160,19 +160,19 @@ module viewModel {
         }
         var step = r[currentSearchResult];
         if (step) {
-            setTimeout(function() {
+            setTimeout(() => {
                 step.scrollIntoView();
                 selectedStep(step);
             }, 0);
         }
     }
 
-    ko.computed(function() {
+    ko.computed(() => {
 
         var st = searchText();
         steps(); // also update if steps change (reload)
 
-        setTimeout(function() {
+        setTimeout(() => {
             searchResults.removeAll();
             currentSearchResult = 0;
 
@@ -182,9 +182,9 @@ module viewModel {
             }
             st = st.toLowerCase();
 
-            steps().forEach(function(step) {
+            steps().forEach(step => {
                 if ((step.description.toLowerCase().indexOf(st) != -1) ||
-                    (step.id.indexOf(st) === 0)) { // "begins" search for ID
+                (step.id.indexOf(st) === 0)) { // "begins" search for ID
                     searchResults.push(step);
                     step.isSearchHit(true);
                 } else {
@@ -197,7 +197,7 @@ module viewModel {
 
     }).extend({ throttle: 200 });
 
-    ko.computed(function() {
+    ko.computed(() => {
         if (selectedTestFile()) {
             testFile(selectedTestFile());
             selectedTestFile("");
@@ -221,7 +221,7 @@ module viewModel {
         }
     }
 
-    export var canEnableAll = ko.computed(function() {
+    export var canEnableAll = ko.computed(() => {
         var root = steps()[0];
         return root && root.enabledState() !== 1;
     });
@@ -233,7 +233,7 @@ module viewModel {
         }
     }
 
-    export var canDisableAll = ko.computed(function() {
+    export var canDisableAll = ko.computed(() => {
         var root = steps()[0];
         return root && root.enabledState() !== -1;
     });
@@ -252,7 +252,7 @@ module viewModel {
 
     export function last() {
         var after = false;
-        steps().forEach(function(step) {
+        steps().forEach(step => {
             if (step === selectedStep()) {
                 after = true;
             } else if (after && step.execute) {
@@ -308,7 +308,7 @@ module viewModel {
         return { first: first, steps: all.slice(first, last + 1) };
     }).extend({ throttle: 10 });
 
-    var addStep = function(step: Fumo.Step, parent: IStepModel, depth: number, id?: string) {
+    var addStep = (step: Fumo.Step, parent: IStepModel, depth: number, id?: string) => {
         if (!step || typeof step.description !== 'function') {
             return null;
         }
@@ -360,7 +360,7 @@ module viewModel {
         stepModel.running = ko.computed(() => stepModel.image() === "running");
         
         // Better than browser's version which scrolls unnecessarily
-        stepModel.scrollIntoView = function () {
+        stepModel.scrollIntoView = () => {
             expandTo(stepModel);
             var ourTop = stepModel.indexExpanded * constantStepHeight,
                 ourBottom = ourTop + constantStepHeight;
@@ -411,7 +411,7 @@ module viewModel {
 
             steps.push(stepModel);
 
-            container.nestedSteps().forEach(function(nestedStep, n) {
+            container.nestedSteps().forEach((nestedStep, n) => {
                 n++;
                 var childStep = addStep(nestedStep, stepModel, depth + 1, id ? (id + "." + n) : "" + n);
                 if (childStep) {
@@ -438,9 +438,7 @@ module viewModel {
         testFile(path);
     }
 
-    export var canReload = ko.computed(function () {
-        return testFile() && !runningContext();
-    });
+    export var canReload = ko.computed(() => testFile() && !runningContext());
 
     function expandTo(step: IStepModel) {
         for (var p = step && step.parent; p; p = p.parent) {
@@ -448,7 +446,7 @@ module viewModel {
         }
     }
 
-    var firstEnabledStep = ko.computed(function() {
+    var firstEnabledStep = () => {
         var first: IStepModel;
         steps().some(s => {
             if (s.execute && s.isEnabled()) {
@@ -457,23 +455,21 @@ module viewModel {
             }
             return false;
         });
-
-        expandTo(first);
         return first;
-    }).extend({ throttle: 100 });
+    };
     
-    var runOneStep = function() {
-        if (!firstEnabledStep()) {
+    var runOneStep = () => {
+        
+        var rs = firstEnabledStep();
+        if (!rs) {
             runningContext(null);
             progress(0);
             eta("");
             if (autoQuit) {
                 cleanShutdown();
             }
-
         } else {
-
-            var rs = firstEnabledStep();
+            expandTo(rs);
             rs.log('Started');
             rs.image('running');
             rs.showingLogs(true);
@@ -496,7 +492,7 @@ module viewModel {
 
             var rc : Fumo.ExecutionContext = {
                 driver: getDriver(),
-                log: function(str) {
+                log: str => {
                     rs.log(str);
                 },
                 shouldQuit: false
@@ -510,7 +506,7 @@ module viewModel {
                 execution = <any>webdriver.promise.rejected(x);
             }
 
-            execution.then(function() {
+            execution.then(() => {
                 if (rc.shouldQuit) {
                     throw new api.ShouldQuitError();
                 }
@@ -522,9 +518,9 @@ module viewModel {
                 stepsCompleted++;
                 runOneStep();
 
-            }).then(null, function(err: Error) {
+            }).then(null, (err: Error) => {
                 rs.log(err.toString());
-                printStackTrace({ e: err }).forEach(function(frame) {
+                printStackTrace({ e: err }).forEach(frame => {
                     rs.log('- ' + frame);
                 });
                 rs.image('fail');
@@ -535,7 +531,7 @@ module viewModel {
                 if (errorFile) {
                     try {
                         fs.writeFileSync(errorFile, 'failed');
-                    } catch (x) { }
+                    } catch (ex) { }
                 }
 
                 if (autoQuitOnError) {
@@ -545,11 +541,11 @@ module viewModel {
         }
     };
 
-    export var canStart = ko.computed(function() {
+    export var canStart = ko.computed(() => {
         return firstEnabledStep() && !runningContext();
-    });
+    }).extend({ throttle: 100 });
 
-    var getDriver = function() {
+    var getDriver = () => {
         if (!driver()) {
 
             var builder: webdriver.AbstractBuilder = new webdriver.Builder();
@@ -563,7 +559,7 @@ module viewModel {
                 var caps = webdriver.Capabilities.ie();
                 caps.set("ie.ensureCleanSession", true);
                 builder = builder.usingServer("http://localhost:5555")
-                                 .withCapabilities(caps);
+                    .withCapabilities(caps);
             } else {
                 builder = builder.withCapabilities(webdriver.Capabilities.chrome());
             }
@@ -586,9 +582,7 @@ module viewModel {
         runOneStep();
     }
 
-    export var canStop = ko.computed(function() {
-        return runningContext();
-    });
+    export var canStop = ko.computed(() => runningContext());
 
     export function stop() {
         if (runningContext()) {
@@ -597,9 +591,7 @@ module viewModel {
         }
     }
 
-    export var canReset = ko.computed(function() {
-        return !runningContext() && driver();
-    });
+    export var canReset = ko.computed(() => !runningContext() && driver());
 
     export function reset() {
         if (driver()) {
@@ -608,13 +600,10 @@ module viewModel {
         }
     }
 
-    var declareApi = function(api: Fumo.Api, paramName: string) {
-        return Object.keys(api).map(function(member) {
-            return 'var ' + member + ' = ' + paramName + '.' + member + ';\n';
-        }).join("");
-    };
+    var declareApi = (api: Fumo.Api, paramName: string) =>
+        Object.keys(api).map(member => 'var ' + member + ' = ' + paramName + '.' + member + ';\n').join("");
 
-    ko.computed(function() {
+    ko.computed(() => {
         if (!testFile()) {
             return;
         }
@@ -622,16 +611,12 @@ module viewModel {
         document.title = 'Fumo - ' + path.basename(testFile());
 
         var rootDir = path.dirname(testFile());
-
-        var testLoadText = function(name: string): string {
-            return fs.readFileSync(path.join(rootDir, name)).toString('utf8');
-        };
-
+        
         var testModules: { [name: string]: any } = {},
             requireStack: { [name: string]: boolean } = {},
-            fumoApi = api.makeFumoApi(PersistentSettings.get, testLoadText);
+            fumoApi = api.makeFumoApi(PersistentSettings.get, rootDir);
 
-        var testRequire = function(name: string) {
+        var testRequire = (name: string) => {
             if (!path.extname(name)) {
                 name += '.js';
             }
@@ -655,7 +640,7 @@ module viewModel {
             result = (new Function(
                 'exports', 'module', 'require, fumoApi',
                 declareApi(fumoApi, 'fumoApi') + source + '\nreturn module;')(
-                    exports, module, testRequire, fumoApi)).exports;
+                exports, module, testRequire, fumoApi)).exports;
 
             requireStack[name] = false;
             testModules[name] = result;
@@ -681,36 +666,30 @@ module viewModel {
 
         setTimeout(() => {
             // Remove any settings that the test never asked for
-            settings().filter(function(settingModel: any) {
-                return !PersistentSettings.wasNameAccessed(settingModel.name);
-            }).forEach(function(settingModel) {
+            settings().filter((settingModel: any) => !PersistentSettings.wasNameAccessed(settingModel.name)).forEach(settingModel => {
                 settings.remove(settingModel);
             });
 
             // Add models for the settings not already visible
-            PersistentSettings.getAccessedNames().forEach(function(name) {
-                if (!settings().some(function(settingModel: any) {
-                    return settingModel.name === name;
-                })) {
+            PersistentSettings.getAccessedNames().forEach(name => {
+                if (!settings().some((sm: any) => sm.name === name)) {
                     var val = ko.observable(PersistentSettings.get(name));
                     var settingModel: any = { name: name, value: val };
-                    settingModel.clear = function() {
+                    settingModel.clear = () => {
                         PersistentSettings.clear(name);
                         settings.remove(settingModel);
                         dirtySettings(true);
                     };
 
                     settings.push(settingModel);
-                    val.subscribe(function() {
+                    val.subscribe(() => {
                         PersistentSettings.put(name, val());
                         dirtySettings(true);
                     });
                 }
             });
 
-            settings.sort(function(a, b) {
-                return a.name.localeCompare(b.name);
-            });
+            settings.sort((a, b) => a.name.localeCompare(b.name));
         }, 0);
 
         interactiveResult("");
@@ -724,7 +703,7 @@ module viewModel {
 
         if (topId) {
             var sameIdAsTop: IStepModel;
-            steps().some(function (step) {
+            steps().some(step => {
                 if (topId.indexOf(step.id) === 0) {
                     sameIdAsTop = step;
                 }
@@ -759,7 +738,7 @@ module viewModel {
         interactiveResult("");
         interactiveTrying(true);
 
-        var log = function(str: string) {
+        var log = (str: string) => {
             interactiveResult(str + "\n" + interactiveResult());
         };
 
@@ -775,14 +754,14 @@ module viewModel {
                     log('No promise returned');
                     interactiveTrying(false);
                 } else {
-                    prom.then(function(val: any) {
+                    prom.then((val: any) => {
                         log('Result: ' + val);
                         interactiveTrying(false);
-                    }, function(x: Error) {
-                        log(x.toString());
+                    }, (ex: Error) => {
+                        log(ex.toString());
                         log('(Did you remember to close the debugger in the target browser?)');
                         interactiveTrying(false);
-                    })
+                    });
                 }
             } else {
                 log('Was not a valid action or condition function');
@@ -799,8 +778,6 @@ module viewModel {
     }
 }
 
-window.onload = function() {
-    ko.applyBindings(viewModel);
-};
+window.onload = () => ko.applyBindings(ViewModel);
 
 
